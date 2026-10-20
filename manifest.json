@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Leads Automate",
+  "version": "0.1.0",
+  "description": "Side panel that prioritizes job titles and runs company-by-company searches on LinkedIn Sales Navigator people search.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage"],
+  "host_permissions": ["https://www.linkedin.com/sales/*"],
+  "icons": {
+    "16": "assets/icons/logo-16.png",
+    "32": "assets/icons/logo-32.png",
+    "48": "assets/icons/logo-48.png",
+    "128": "assets/icons/logo-128.png"
+  },
+  "action": {
+    "default_title": "Leads Automate (Sales Navigator)",
+    "default_icon": {
+      "16": "assets/icons/logo-16.png",
+      "32": "assets/icons/logo-32.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/sales/*"],
+      "js": [
+        "src/content/selectors.js",
+        "src/content/dom-utils.js",
+        "src/content/sales-search.js"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

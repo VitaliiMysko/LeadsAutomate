@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Leads Automate</title>
+    <link rel="stylesheet" href="src/sidepanel/styles.css" />
+    <script type="module" src="src/sidepanel/main.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Leads Automate</h1>
+      <span id="app-version" class="app-version"></span>
+    </header>
+
+    <section id="status" class="status status--idle" role="status" aria-live="polite">
+      <span class="status__dot" aria-hidden="true"></span>
+      <span class="status__text">Loading…</span>
+      <span class="status__time"></span>
+    </section>
+
+    <div id="job-board">
+      <section class="card">
+        <div class="card__head">
+          <h2>Job list</h2>
+          <span id="job-pool-count" class="badge" title="Unplaced / all job titles in the filter"></span>
+        </div>
+        <div id="job-pool" class="chip-pool drop-zone" aria-label="Job titles from the Current job title filter"></div>
+        <p id="job-pool-empty" class="hint"></p>
+      </section>
+
+      <section class="board">
+        <div class="column">
+          <div class="column__head">
+            <h2>Management</h2>
+            <label class="count-field" title="How many Management leads to take per search">
+              <span>Leads</span>
+              <input type="number" id="management-count" inputmode="numeric" />
+            </label>
+          </div>
+          <ol id="management-list" class="rank-list drop-zone" aria-label="Management job titles by priority"></ol>
+        </div>
+        <div class="column">
+          <div class="column__head">
+            <h2>Technical</h2>
+            <label class="count-field" title="How many Technical leads to take per search">
+              <span>Leads</span>
+              <input type="number" id="technical-count" inputmode="numeric" />
+            </label>
+          </div>
+          <ol id="technical-list" class="rank-list drop-zone" aria-label="Technical job titles by priority"></ol>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card__head"><h2>Company</h2></div>
+      <div class="field-row">
+        <input type="text" id="company-name" placeholder="Name company" autocomplete="off" />
+        <button type="button" id="search-btn" class="btn btn--primary">Search</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card__head"><h2>Companies file</h2></div>
+      <div class="file-row">
+        <label id="companies-file-btn" class="btn btn--secondary file-btn">
+          Choose file
+          <input type="file" id="companies-file" accept=".txt,.csv,text/plain" hidden />
+        </label>
+        <span id="companies-file-name" class="file-name">No file selected</span>
+      </div>
+      <div class="progress" title="Processed companies">
+        <div class="progress__track"><div id="progress-fill" class="progress__fill"></div></div>
+        <span id="progress-text" class="progress__text">0 / 0</span>
+      </div>
+      <div class="button-row">
+        <button type="button" id="search-next-btn" class="btn btn--primary">Search next</button>
+        <button type="button" id="search-all-btn" class="btn btn--primary">Search all</button>
+        <button type="button" id="stop-btn" class="btn btn--danger">Stop</button>
+        <button type="button" id="reset-queue-btn" class="btn btn--secondary btn--icon" title="Start the list over" aria-label="Start the list over">↺</button>
+      </div>
+    </section>
+
+    <section class="card log-card">
+      <div class="card__head">
+        <h2>Log</h2>
+        <div class="log-tools">
+          <select id="log-level-filter" aria-label="Log level filter">
+            <option value="all">All</option>
+            <option value="info">Info+</option>
+            <option value="warn">Warn+</option>
+            <option value="error">Errors</option>
+          </select>
+          <button type="button" id="log-copy-btn" class="btn btn--secondary btn--small">Copy</button>
+          <button type="button" id="log-clear-btn" class="btn btn--secondary btn--small">Clear</button>
+        </div>
+      </div>
+      <div id="log" class="log" role="log" aria-live="off"></div>
+    </section>
+  </body>
+</html>
