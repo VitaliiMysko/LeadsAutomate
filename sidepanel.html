@@ -56,47 +56,54 @@
       </div>
     </section>
 
-    <div id="job-board">
-      <section class="card">
-        <div class="card__head">
-          <h2>Job list</h2>
-          <span id="job-pool-count" class="badge" title="Unplaced / all job titles in the filter"></span>
-        </div>
-        <div id="job-pool" class="chip-pool drop-zone" aria-label="Job titles from the Current job title filter"></div>
-        <p id="job-pool-empty" class="hint"></p>
-      </section>
+    <details id="job-section" class="collapsible" open>
+      <summary class="collapsible__head">
+        <span class="collapsible__chevron" aria-hidden="true"></span>
+        <h2>Job titles</h2>
+        <span id="job-section-summary" class="collapsible__summary"></span>
+      </summary>
+      <div id="job-board">
+        <section class="card">
+          <div class="card__head">
+            <h2>Job list</h2>
+            <span id="job-pool-count" class="badge" title="Unplaced / all job titles in the filter"></span>
+          </div>
+          <div id="job-pool" class="chip-pool drop-zone" aria-label="Job titles from the Current job title filter"></div>
+          <p id="job-pool-empty" class="hint"></p>
+        </section>
 
-      <section class="board">
-        <div class="column">
-          <div class="column__head">
-            <h2>Management</h2>
-            <label class="count-field" title="How many Management leads to take per search">
-              <span>Leads</span>
-              <input type="number" id="management-count" inputmode="numeric" />
-            </label>
+        <section class="board">
+          <div class="column">
+            <div class="column__head">
+              <h2>Management</h2>
+              <label class="count-field" title="How many Management leads to take per search">
+                <span>Leads</span>
+                <input type="number" id="management-count" inputmode="numeric" />
+              </label>
+            </div>
+            <ol id="management-list" class="rank-list drop-zone" aria-label="Management job titles by priority"></ol>
+            <form id="management-add" class="add-title" autocomplete="off">
+              <input type="text" placeholder="Add job title" aria-label="Add a Management job title" />
+              <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
+            </form>
           </div>
-          <ol id="management-list" class="rank-list drop-zone" aria-label="Management job titles by priority"></ol>
-          <form id="management-add" class="add-title" autocomplete="off">
-            <input type="text" placeholder="Add job title" aria-label="Add a Management job title" />
-            <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
-          </form>
-        </div>
-        <div class="column">
-          <div class="column__head">
-            <h2>Technical</h2>
-            <label class="count-field" title="How many Technical leads to take per search">
-              <span>Leads</span>
-              <input type="number" id="technical-count" inputmode="numeric" />
-            </label>
+          <div class="column">
+            <div class="column__head">
+              <h2>Technical</h2>
+              <label class="count-field" title="How many Technical leads to take per search">
+                <span>Leads</span>
+                <input type="number" id="technical-count" inputmode="numeric" />
+              </label>
+            </div>
+            <ol id="technical-list" class="rank-list drop-zone" aria-label="Technical job titles by priority"></ol>
+            <form id="technical-add" class="add-title" autocomplete="off">
+              <input type="text" placeholder="Add job title" aria-label="Add a Technical job title" />
+              <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
+            </form>
           </div>
-          <ol id="technical-list" class="rank-list drop-zone" aria-label="Technical job titles by priority"></ol>
-          <form id="technical-add" class="add-title" autocomplete="off">
-            <input type="text" placeholder="Add job title" aria-label="Add a Technical job title" />
-            <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
-          </form>
-        </div>
-      </section>
-    </div>
+        </section>
+      </div>
+    </details>
 
     <section class="card log-card">
       <div class="card__head">

@@ -8,9 +8,8 @@ The panel shows these sections, top to bottom:
 1. status area;
 2. Company;
 3. Companies file;
-4. Job list;
-5. Management / Technical;
-6. Log.
+4. **Job titles**: a collapsible section holding the Job list and the Management / Technical columns. Click its header to hide or show it. The header always shows the counts (titles in the filter, titles in each column), and the open / closed state is remembered;
+5. Log.
 
 - **Job list**: every job title selected in Sales Navigator's *Current job title* filter (included values only). It refreshes whenever the search URL changes.
 - **Management / Technical** columns: drag titles from the Job list into a column, reorder them within it, or move them to the other column. The first title in a column has the highest priority. The columns have a fixed height and scroll when they hold more titles than fit. Hover a title to see ↑ / ↓ / × buttons (× sends it back to the Job list). A title that is no longer in the filter stays in its column, shown struck through.

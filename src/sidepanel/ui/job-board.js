@@ -138,6 +138,10 @@ function render() {
   if (!pool.length && filterTitlesKnown && filterTitles.length) {
     elements.poolEmpty.textContent = "All job titles are placed in the columns";
   }
+  // Shown in the section header, so the counts stay visible when it's collapsed.
+  elements.sectionSummary.textContent =
+    (filterTitlesKnown ? `${filterTitles.length} in filter · ` : "") +
+    `Management ${board.management.length} · Technical ${board.technical.length}`;
 
   for (const column of COLUMNS) {
     const list = elements.columns[column];
@@ -249,6 +253,11 @@ export async function initJobBoard(boardElements) {
     management: clampCount(storedCount.management ?? LEADS_COUNT.default),
     technical: clampCount(storedCount.technical ?? LEADS_COUNT.default),
   };
+
+  // The section (Job list + columns) collapses on a header click; the
+  // open / closed state is remembered.
+  elements.section.open = await loadValue(STORAGE_KEYS.jobSectionOpen, true);
+  elements.section.addEventListener("toggle", () => saveValue(STORAGE_KEYS.jobSectionOpen, elements.section.open));
 
   initCountInputs();
   initAddForms();
