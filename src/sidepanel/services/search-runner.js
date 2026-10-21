@@ -2,7 +2,7 @@ import { FILTER_TYPES, SELECTION_TYPES, getFilterTexts, getFilterValues, urlWith
 import { chooseCompanyOption } from "../../utils/company-match.js";
 import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
 import { logoDistance, logoSimilarity } from "../../utils/image-hash.js";
-import { MATCH_KINDS } from "../../utils/match-records.js";
+import { MATCH_KINDS, companyIdFromUrn } from "../../utils/match-records.js";
 import { TIMING, LOGO_THRESHOLDS } from "../../constants/config.js";
 import { formatDuration } from "../../utils/text-utils.js";
 import { hashRemoteLogo } from "./logo-service.js";
@@ -20,7 +20,7 @@ const allCompanies = (url) => [
 async function saveRecord(kind, fields, log) {
   try {
     const total = await recordMatch(kind, fields);
-    log.debug(`Saved ${kind} match record (${total} stored)`);
+    log.debug(`Saved ${kind} match record, company id ${fields.companyId ?? "unknown"} (${total} stored)`);
   } catch (error) {
     log.warn(`Could not save the ${kind} match record: ${error.message}`);
   }
@@ -270,10 +270,15 @@ export async function searchCompany(name, { log, fileLogo = null, waitForManualC
   if (choice.index !== -1) {
     const label = options[choice.index];
     log.info(`Auto-choosing "${label}" (option ${choice.index + 1} of ${options.length}) for "${name}": ${choice.description}`);
-    await selectOption(tab.id, choice.index, label, log);
+    const url = await selectOption(tab.id, choice.index, label, log);
     log.success(`Auto-selected "${label}" for "${name}": ${choice.description}`);
 
-    await saveRecord(MATCH_KINDS.AUTO, { typed: name, chosen: label, rule: choice.rule, options, logo: choice.logo }, log);
+    const companyId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
+    await saveRecord(
+      MATCH_KINDS.AUTO,
+      { typed: name, chosen: label, companyId, rule: choice.rule, options, logo: choice.logo },
+      log
+    );
     return {
       outcome: "auto",
       chosen: label,
@@ -309,8 +314,10 @@ export async function searchCompany(name, { log, fileLogo = null, waitForManualC
     throw error;
   }
 
-  const chosen = includedCompanies(url).join(", ");
+  const picked = getFilterValues(url, COMPANY);
+  const chosen = picked.map((value) => value.text).join(", ");
+  const companyId = picked.map((value) => companyIdFromUrn(value.id)).filter(Boolean).join(", ") || null;
   log.success(`Manually selected "${chosen}" for "${name}"`);
-  await saveRecord(MATCH_KINDS.MANUAL, { typed: name, chosen, reason: choice.reason, options }, log);
+  await saveRecord(MATCH_KINDS.MANUAL, { typed: name, chosen, companyId, reason: choice.reason, options }, log);
   return { outcome: "manual", chosen, count: await waitForResults(tab.id, log) };
 }
