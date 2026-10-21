@@ -673,6 +673,73 @@ input[readonly] {
   text-align: right;
 }
 
+/* ---- logos ------------------------------------------------------------- */
+
+#logos-row[hidden],
+.current-logo[hidden] {
+  display: none;
+}
+
+.logos-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.logos-status--warn {
+  color: var(--warn);
+}
+
+.current-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+}
+
+.current-logo__img {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.current-logo__img[hidden] {
+  display: none;
+}
+
+.current-logo__arrow {
+  color: var(--text-muted);
+}
+
+.current-logo__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.current-logo__name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current-logo__verdict {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* ---- needs manual choice ---------------------------------------------- */
 
 .unresolved {

@@ -1,5 +1,6 @@
 import { FILTER_TYPES, getSearchFilters, getFilterTexts, isPeopleSearchUrl } from "../utils/restli-query.js";
 import { getActiveTab } from "./services/tab-service.js";
+import { clearOutdatedMatchRecords } from "./services/match-recorder.js";
 import { initLog, log } from "./ui/log.js";
 import { initStatus, status } from "./ui/status.js";
 import { initJobBoard, setFilterTitles } from "./ui/job-board.js";
@@ -74,12 +75,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     unresolvedCount: $("unresolved-count"),
     unresolvedList: $("unresolved-list"),
     unresolvedClearButton: $("unresolved-clear-btn"),
+    logosRow: $("logos-row"),
+    logoFolderInput: $("logo-folder"),
+    logoFolderButton: $("logo-folder-btn"),
+    logosStatus: $("logos-status"),
+    currentLogo: $("current-logo"),
+    currentFileLogo: $("current-file-logo"),
+    currentFoundLogo: $("current-found-logo"),
+    currentLogoName: $("current-logo-name"),
+    currentLogoVerdict: $("current-logo-verdict"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     if (info.url && tab.active) refreshJobTitles();
   });
   chrome.tabs.onActivated.addListener(refreshJobTitles);
+
+  const dropped = await clearOutdatedMatchRecords();
+  if (dropped) log.info(`Cleared ${dropped} match records of the old format (without companyId)`);
 
   log.info("Side panel ready");
   await refreshJobTitles();

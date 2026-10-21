@@ -1,8 +1,11 @@
 import { FILTER_TYPES, SELECTION_TYPES, getFilterTexts, getFilterValues, urlWithoutFilter } from "../../utils/restli-query.js";
 import { chooseCompanyOption } from "../../utils/company-match.js";
-import { MATCH_KINDS } from "../../utils/match-records.js";
-import { TIMING } from "../../constants/config.js";
+import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
+import { logoDistance, logoSimilarity } from "../../utils/image-hash.js";
+import { MATCH_KINDS, companyIdFromUrn } from "../../utils/match-records.js";
+import { TIMING, LOGO_THRESHOLDS } from "../../constants/config.js";
 import { formatDuration } from "../../utils/text-utils.js";
+import { hashRemoteLogo } from "./logo-service.js";
 import { getSearchTab, sendToContent, waitForTabUrl, FatalError, StoppedError, WaitTimeoutError } from "./tab-service.js";
 import { recordMatch } from "./match-recorder.js";
 
@@ -17,7 +20,7 @@ const allCompanies = (url) => [
 async function saveRecord(kind, fields, log) {
   try {
     const total = await recordMatch(kind, fields);
-    log.debug(`Saved ${kind} match record (${total} stored)`);
+    log.debug(`Saved ${kind} match record, company id ${fields.companyId ?? "unknown"} (${total} stored)`);
   } catch (error) {
     log.warn(`Could not save the ${kind} match record: ${error.message}`);
   }
@@ -184,6 +187,43 @@ async function selectOption(tabId, index, label, log) {
   return url;
 }
 
+const LOGO_VERDICT_LOG = {
+  [LOGO_VERDICTS.CONFIRMED]: ["success", "logo confirms the choice"],
+  [LOGO_VERDICTS.UNSURE]: ["warn", "logo similarity is unclear; keeping the choice"],
+  [LOGO_VERDICTS.DIFFERENT_KEPT]: ["warn", "logo differs, but the name matches exactly; keeping the choice"],
+  [LOGO_VERDICTS.OVERRIDDEN]: ["warn", "logo picked a different option than the name"],
+  [LOGO_VERDICTS.CHOSEN_BY_LOGO]: ["success", "chosen by logo"],
+};
+
+// Compares the companies file's logo with each dropdown option's logo and
+// lets logo-match.js confirm, change or drop the name-based choice. Options
+// without a logo (or whose image can't be read) don't take part.
+async function checkLogos(choice, options, logos, fileLogo, log) {
+  const urls = logos ?? [];
+  if (!urls.some(Boolean)) {
+    log.debug("Logo check skipped: no option in the dropdown shows a logo");
+    return choice;
+  }
+  const hashes = await Promise.all(urls.map((url) => (url ? hashRemoteLogo(url) : null)));
+  const distances = hashes.map((hash) => (hash ? logoDistance(fileLogo.hash, hash) : null));
+  log.debug(
+    "Logo similarity: " +
+      options
+        .map((label, i) => `#${i + 1} "${label}" ${distances[i] === null ? (urls[i] ? "unreadable" : "no logo") : `${logoSimilarity(distances[i])}% (distance ${distances[i]})`}`)
+        .join(", ")
+  );
+
+  const checked = applyLogoCheck(choice, distances, LOGO_THRESHOLDS);
+  const verdict = checked.logo?.verdict;
+  if (verdict) {
+    const [level, text] = LOGO_VERDICT_LOG[verdict];
+    log[level](`Logo check: ${text} (similarity ${logoSimilarity(checked.logo.distance)}%)`);
+  } else if (checked.index === -1 && choice.index !== -1) {
+    log.warn(`Logo check: ${checked.reason}`);
+  }
+  return checked;
+}
+
 async function waitForResults(tabId, log) {
   log.debug("Waiting for search results");
   const { count, settled } = await sendToContent(tabId, "waitForResults");
@@ -201,9 +241,12 @@ async function waitForResults(tabId, log) {
 //   their pick (read from the URL) is recorded as a manual match;
 // - otherwise the dropdown is closed and the company reported unresolved.
 //
+// `fileLogo` ({ hash }) is the company's logo from the companies CSV: when
+// given, the choice is also checked against the dropdown's logos.
+//
 // Returns { outcome: "already" | "auto" | "manual" | "unresolved", chosen,
-// rule, reason, count }. Throws FatalError when a batch run can't go on.
-export async function searchCompany(name, { log, waitForManualChoice = false, onManualWait, shouldStop }) {
+// rule, reason, logo, count }. Throws FatalError when a batch run can't go on.
+export async function searchCompany(name, { log, fileLogo = null, waitForManualChoice = false, onManualWait, shouldStop }) {
   const tab = await getSearchTab();
   await sendToContent(tab.id, "ping");
 
@@ -218,19 +261,31 @@ export async function searchCompany(name, { log, waitForManualChoice = false, on
   }
 
   log.info(`Typing "${name}" into Current company`);
-  const { options } = await sendToContent(tab.id, "typeFilterValue", { filterType: COMPANY, text: name });
+  const { options, logos } = await sendToContent(tab.id, "typeFilterValue", { filterType: COMPANY, text: name });
   log.debug(options.length ? `Dropdown (${options.length}): ${options.join(" | ")}` : "Dropdown is empty");
 
-  const choice = chooseCompanyOption(name, options);
+  let choice = chooseCompanyOption(name, options);
+  if (fileLogo?.hash && options.length) choice = await checkLogos(choice, options, logos, fileLogo, log);
 
   if (choice.index !== -1) {
     const label = options[choice.index];
     log.info(`Auto-choosing "${label}" (option ${choice.index + 1} of ${options.length}) for "${name}": ${choice.description}`);
-    await selectOption(tab.id, choice.index, label, log);
+    const url = await selectOption(tab.id, choice.index, label, log);
     log.success(`Auto-selected "${label}" for "${name}": ${choice.description}`);
 
-    await saveRecord(MATCH_KINDS.AUTO, { typed: name, chosen: label, rule: choice.rule, options }, log);
-    return { outcome: "auto", chosen: label, rule: choice.rule, count: await waitForResults(tab.id, log) };
+    const companyId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
+    await saveRecord(
+      MATCH_KINDS.AUTO,
+      { typed: name, chosen: label, companyId, rule: choice.rule, options, logo: choice.logo },
+      log
+    );
+    return {
+      outcome: "auto",
+      chosen: label,
+      rule: choice.rule,
+      logo: { url: logos[choice.index] ?? null, ...choice.logo },
+      count: await waitForResults(tab.id, log),
+    };
   }
 
   log.warn(`No automatic choice for "${name}": ${choice.reason}`);
@@ -259,8 +314,10 @@ export async function searchCompany(name, { log, waitForManualChoice = false, on
     throw error;
   }
 
-  const chosen = includedCompanies(url).join(", ");
+  const picked = getFilterValues(url, COMPANY);
+  const chosen = picked.map((value) => value.text).join(", ");
+  const companyId = picked.map((value) => companyIdFromUrn(value.id)).filter(Boolean).join(", ") || null;
   log.success(`Manually selected "${chosen}" for "${name}"`);
-  await saveRecord(MATCH_KINDS.MANUAL, { typed: name, chosen, reason: choice.reason, options }, log);
+  await saveRecord(MATCH_KINDS.MANUAL, { typed: name, chosen, companyId, reason: choice.reason, options }, log);
   return { outcome: "manual", chosen, count: await waitForResults(tab.id, log) };
 }

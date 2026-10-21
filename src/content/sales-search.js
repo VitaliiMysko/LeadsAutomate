@@ -140,15 +140,27 @@ if (!window.leadsAutomate.salesSearchInit) {
     return (option.innerText || option.textContent || "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
   }
 
+  // The option's company logo URL, or null when it shows none: no image yet
+  // (lazy loading), an inline placeholder, or LinkedIn's "ghost" image for
+  // companies without a logo.
+  function optionLogo(option) {
+    const image = queryFirst(option, SELECTORS.optionLogo);
+    const src = image?.currentSrc || image?.src || "";
+    if (!/^https:\/\//.test(src)) return null;
+    if (/ghost/i.test(src) || /ghost/i.test(image.className || "")) return null;
+    return src;
+  }
+
   function getFilterInput(fieldset) {
     const input = queryFirst(fieldset, SELECTORS.filterInput, { visibleOnly: true });
     if (!input) throw new Error("Filter text input is not open");
     return input;
   }
 
-  // Types `text` into the filter and returns the dropdown's option labels
-  // (empty when no suggestions appear). The dropdown stays open, so the side
-  // panel can pick an option or leave the choice to the user.
+  // Types `text` into the filter and returns the dropdown's option labels and
+  // logo URLs (null where an option shows no logo); empty when no
+  // suggestions appear. The dropdown stays open, so the side panel can pick
+  // an option or leave the choice to the user.
   async function typeFilterValue({ filterType, text }) {
     const fieldset = getFilterFieldset(filterType);
     const input = await ensureFilterExpanded(fieldset);
@@ -168,7 +180,8 @@ if (!window.leadsAutomate.salesSearchInit) {
 
     // Let late suggestions finish rendering before reading the list.
     if (options.length) await humanDelay(600, 1000);
-    return { options: getSuggestionOptions(input, fieldset).map(optionLabel) };
+    const current = getSuggestionOptions(input, fieldset);
+    return { options: current.map(optionLabel), logos: current.map(optionLogo) };
   }
 
   const HIGHLIGHT_CLASS = /(active|hover|focus|highlight|selected|current)/i;
