@@ -14,10 +14,6 @@ import { MATCH_RULES } from "./company-match.js";
 //     whose logo matches, if exactly one does; otherwise nothing is chosen
 //     (left for a manual choice).
 // - Nothing chosen by name: an option is chosen if its logo alone matches.
-//
-// With `logoFirst` (experiment), a unique logo match wins outright: that
-// option is chosen whatever the name rules picked, exact names included;
-// without one, the rules above apply.
 
 export const LOGO_RULE = "logo";
 export const LOGO_RULE_DESCRIPTION = "the only option whose logo matches the file's logo";
@@ -47,26 +43,10 @@ export function uniqueLogoMatch(distances, { matchMaxDistance, margin }) {
   return best.index;
 }
 
-export function applyLogoCheck(nameChoice, distances, thresholds, { logoFirst = false } = {}) {
+export function applyLogoCheck(nameChoice, distances, thresholds) {
   if (!distances.some(present)) return nameChoice;
 
   const logoIndex = uniqueLogoMatch(distances, thresholds);
-
-  if (logoFirst && logoIndex !== -1 && logoIndex !== nameChoice.index) {
-    return {
-      index: logoIndex,
-      rule: LOGO_RULE,
-      description:
-        nameChoice.index === -1
-          ? LOGO_RULE_DESCRIPTION
-          : `${LOGO_RULE_DESCRIPTION} (logo takes priority over option #${nameChoice.index + 1}, ${nameChoice.description})`,
-      logo: {
-        verdict: nameChoice.index === -1 ? LOGO_VERDICTS.CHOSEN_BY_LOGO : LOGO_VERDICTS.OVERRIDDEN,
-        distance: distances[logoIndex],
-        ...(nameChoice.index === -1 ? {} : { rejectedDistance: distances[nameChoice.index] ?? null }),
-      },
-    };
-  }
 
   if (nameChoice.index === -1) {
     if (logoIndex === -1) return nameChoice;
