@@ -14,6 +14,7 @@ export const STORAGE_KEYS = {
   leadsCount: "leadsCount",
   companyName: "companyName",
   companyQueue: "companyQueue",
+  logLevels: "logLevels",
 };
 
 export const LOG_LIMIT = 1000;

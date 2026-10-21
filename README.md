@@ -2,10 +2,11 @@
 
 Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. It is meant to work alongside the [Lead generator](../LeadGenerator) extension; that integration isn't implemented yet.
 
-## Features (v0.1)
+## Features (v0.2)
 
 - **Job list**: every job title selected in Sales Navigator's *Current job title* filter (included values only). It refreshes whenever the search URL changes.
 - **Management / Technical** columns: drag titles from the Job list into a column, reorder them within it, or move them to the other column. The first title in a column has the highest priority. Hover a title to see ↑ / ↓ / × buttons (× sends it back to the Job list). A title that is no longer in the filter stays in its column, shown struck through.
+  - **Manual entry**: type a title into the *Add job title* field under a column and press Enter or **+**. It goes to the end of that column, dashed and marked *manual*. If the title is already on the board, in the Job list, or differs only in case or spacing, the existing spelling is used and moved to this column. × on a manual title removes it.
 - **Leads** fields: the number of Management and Technical leads wanted per search (0–100). The value is stored but not used yet.
 - **Company → Search**: replaces the *Current company* filter with the typed name, picks the best typeahead suggestion and waits for the results.
 - **Companies file**: a text file with company names separated by commas (line breaks also work). Duplicates and empty entries are skipped.
@@ -14,9 +15,10 @@ Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people 
   - The progress bar shows processed / total companies. The company being processed is shown in the *Name company* field.
   - The list and the current position are remembered after the panel is closed.
 - **Status area**: shows the current operation, how long it has been running, and its outcome or total time.
-- **Log**: a scrollable list with time-stamped `DEBUG` / `INFO` / `OK` / `WARN` / `ERROR` entries. It has a level filter and Copy / Clear buttons. Lines marked `[page]` come from the script running on the LinkedIn page.
+- **Log**: a scrollable list with time-stamped `DEBUG` / `INFO` / `OK` / `WARN` / `ERROR` entries, with Copy (copies the visible entries) and Clear buttons. Lines marked `[page]` come from the script running on the LinkedIn page.
+  - **Quick filters**: one toggle per marker with its entry count. Click a toggle to show or hide that marker, double-click it to show only that marker, or click **All** to show everything. The selection is remembered.
 
-Board, lead counts, company name and the companies list are kept in `chrome.storage.local`.
+Board (including manual titles), lead counts, company name, the companies list and the log filter selection are kept in `chrome.storage.local`.
 
 ## Install (development)
 

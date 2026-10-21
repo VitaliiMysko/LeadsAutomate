@@ -39,9 +39,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("app-version").textContent = `v${chrome.runtime.getManifest().version}`;
 
   initStatus($("status"));
-  initLog({
+  await initLog({
     element: $("log"),
-    filterSelect: $("log-level-filter"),
+    filtersContainer: $("log-filters"),
     copyButton: $("log-copy-btn"),
     clearButton: $("log-clear-btn"),
   });
@@ -53,6 +53,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     poolEmpty: $("job-pool-empty"),
     columns: { management: $("management-list"), technical: $("technical-list") },
     countInputs: { management: $("management-count"), technical: $("technical-count") },
+    addForms: { management: $("management-add"), technical: $("technical-add") },
   });
 
   await initSearchControls({

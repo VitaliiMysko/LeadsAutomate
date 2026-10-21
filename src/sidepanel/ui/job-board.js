@@ -5,9 +5,12 @@ import {
   sanitizeBoard,
   getPool,
   moveTitle,
+  addTitle,
+  isManualTitle,
 } from "../../utils/priority-board.js";
 import { LEADS_COUNT, STORAGE_KEYS } from "../../constants/config.js";
 import { loadValue, saveValue } from "../store/storage.js";
+import { log } from "./log.js";
 
 // "Job list" (titles from the Sales Navigator "Current job title" filter)
 // and the Management / Technical priority columns, filled by drag and drop.
@@ -58,8 +61,11 @@ function createRankItem(column, title, index) {
   item.draggable = true;
   item.dataset.title = title;
 
-  const isStale = filterTitlesKnown && !filterTitles.includes(title);
-  if (isStale) {
+  const isManual = isManualTitle(board, title);
+  if (isManual) {
+    item.classList.add("rank-item--manual");
+    item.title = "Added manually";
+  } else if (filterTitlesKnown && !filterTitles.includes(title)) {
     item.classList.add("rank-item--stale");
     item.title = "Not in the current Sales Navigator \"Current job title\" filter";
   }
@@ -77,11 +83,48 @@ function createRankItem(column, title, index) {
   actions.append(
     createIconButton("Move up", "↑", () => applyMove(title, column, index - 1), index === 0),
     createIconButton("Move down", "↓", () => applyMove(title, column, index + 1), index === columnTitles.length - 1),
-    createIconButton("Back to Job list", "×", () => applyMove(title, POOL))
+    createIconButton(isManual ? "Remove" : "Back to Job list", "×", () => applyMove(title, POOL))
   );
 
-  item.append(rank, text, actions);
+  item.append(rank, text);
+  if (isManual) {
+    const badge = document.createElement("span");
+    badge.className = "rank-item__badge";
+    badge.textContent = "manual";
+    item.append(badge);
+  }
+  item.append(actions);
   return item;
+}
+
+// --- manual entry ----------------------------------------------------------
+
+const ADD_OUTCOME_MESSAGES = {
+  added: (title, column) => `Added "${title}" to ${column}`,
+  placed: (title, column) => `"${title}" taken from the Job list into ${column}`,
+  moved: (title, column) => `"${title}" moved to ${column}`,
+};
+
+function initAddForms() {
+  for (const column of COLUMNS) {
+    const form = elements.addForms[column];
+    const input = form.querySelector("input");
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const result = addTitle(board, input.value, column, filterTitles);
+      if (result.outcome === "empty") return;
+      if (result.outcome === "exists") {
+        log.warn(`"${result.title}" is already in ${column}`);
+        input.select();
+        return;
+      }
+      board = result.board;
+      persistBoard();
+      render();
+      input.value = "";
+      log.info(ADD_OUTCOME_MESSAGES[result.outcome](result.title, column));
+    });
+  }
 }
 
 function render() {
@@ -99,7 +142,7 @@ function render() {
     if (!items.length) {
       const placeholder = document.createElement("li");
       placeholder.className = "rank-list__placeholder";
-      placeholder.textContent = "Drag job titles here";
+      placeholder.textContent = "Drag job titles here or type one below";
       items.push(placeholder);
     }
     list.replaceChildren(...items);
@@ -205,6 +248,7 @@ export async function initJobBoard(boardElements) {
   };
 
   initCountInputs();
+  initAddForms();
   initDragSources(elements.root);
   initDropZone(elements.pool, POOL);
   for (const column of COLUMNS) initDropZone(elements.columns[column], column);

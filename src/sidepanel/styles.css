@@ -370,6 +370,57 @@ h2 {
   text-decoration: line-through dotted;
 }
 
+.rank-item--manual {
+  background: transparent;
+  border: 1px dashed var(--col-color);
+}
+
+.rank-item__badge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--col-soft);
+  color: var(--col-color);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.rank-item:hover .rank-item__badge {
+  display: none;
+}
+
+.add-title {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+}
+
+.add-title input {
+  flex: 1;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+.add-title__btn {
+  flex: none;
+  width: 26px;
+  border: 1px solid var(--col-color);
+  border-radius: 6px;
+  background: var(--col-soft);
+  color: var(--col-color);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.add-title__btn:hover {
+  background: var(--col-color);
+  color: var(--surface);
+}
+
 .icon-btn {
   width: 18px;
   height: 18px;
@@ -570,9 +621,65 @@ input[readonly] {
   gap: 4px;
 }
 
-.log-tools select {
-  padding: 1px 4px;
-  font-size: 11.5px;
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.log-filter {
+  --marker: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+}
+
+.log-filter[aria-pressed="true"] {
+  border-color: var(--marker);
+  background: var(--marker);
+  color: var(--surface);
+}
+
+.log-filter[aria-pressed="false"] {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.log-filter--all[aria-pressed="false"] {
+  text-decoration: none;
+  opacity: 1;
+}
+
+.log-filter__count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-filter--debug {
+  --marker: var(--debug);
+}
+.log-filter--info {
+  --marker: var(--accent);
+}
+.log-filter--success {
+  --marker: var(--success);
+}
+.log-filter--warn {
+  --marker: var(--warn);
+}
+.log-filter--error {
+  --marker: var(--error);
 }
 
 .log {
