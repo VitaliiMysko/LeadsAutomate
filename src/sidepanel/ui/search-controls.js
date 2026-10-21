@@ -1,22 +1,92 @@
 import { STORAGE_KEYS, TIMING } from "../../constants/config.js";
 import { parseCompaniesText } from "../../utils/companies-file.js";
-import { formatDuration, randomBetween } from "../../utils/text-utils.js";
+import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
 import { searchCompany } from "../services/search-runner.js";
 import { FatalError } from "../services/tab-service.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
 
-// "Name company" + Search, and the companies file with Search next /
-// Search all / Stop and its progress bar.
+// "Name company" + Search, the companies file with Search next / Search all
+// / Stop and its progress bar, and the list of companies left for a manual
+// company choice.
+//
+// Search, Search next and the list's Search wait for the user to pick the
+// company by hand when it can't be chosen automatically; Search all never
+// waits: such companies go to the list and the run moves on.
 let elements = null;
 let queue = { fileName: "", companies: [], index: 0 };
+let unresolved = []; // [{ name, reason }]
 let busy = false;
 let batchRunning = false;
+let waitingManual = false;
 let stopRequested = false;
 
 function persistQueue() {
   saveValue(STORAGE_KEYS.companyQueue, queue);
+}
+
+function persistUnresolved() {
+  saveValue(STORAGE_KEYS.unresolvedCompanies, unresolved);
+}
+
+function addUnresolved(name, reason) {
+  unresolved = [...unresolved.filter((item) => !isSameName(item.name, name)), { name, reason }];
+  persistUnresolved();
+}
+
+function removeUnresolved(name) {
+  const next = unresolved.filter((item) => !isSameName(item.name, name));
+  if (next.length === unresolved.length) return;
+  unresolved = next;
+  persistUnresolved();
+}
+
+function renderUnresolved() {
+  elements.unresolvedBlock.hidden = unresolved.length === 0;
+  elements.unresolvedCount.textContent = unresolved.length;
+  elements.unresolvedClearButton.disabled = busy;
+
+  elements.unresolvedList.replaceChildren(
+    ...unresolved.map(({ name, reason }) => {
+      const item = document.createElement("li");
+      item.className = "unresolved__item";
+
+      const text = document.createElement("span");
+      text.className = "unresolved__text";
+      const title = document.createElement("span");
+      title.className = "unresolved__name";
+      title.textContent = name;
+      const why = document.createElement("span");
+      why.className = "unresolved__reason";
+      why.textContent = reason;
+      text.append(title, why);
+
+      const search = document.createElement("button");
+      search.type = "button";
+      search.className = "btn btn--secondary btn--small";
+      search.textContent = "Search";
+      search.title = "Search and pick the company by hand";
+      search.disabled = busy;
+      search.addEventListener("click", () => handleResolve(name));
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon-btn";
+      remove.textContent = "×";
+      remove.title = "Remove from the list";
+      remove.setAttribute("aria-label", `Remove ${name} from the list`);
+      remove.disabled = busy;
+      remove.addEventListener("click", () => {
+        removeUnresolved(name);
+        log.info(`"${name}" removed from the manual choice list`);
+        updateControls();
+      });
+
+      item.append(text, search, remove);
+      return item;
+    })
+  );
 }
 
 function updateControls() {
@@ -27,7 +97,7 @@ function updateControls() {
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
   elements.searchAllButton.disabled = busy || !hasNext;
-  elements.stopButton.disabled = !batchRunning || stopRequested;
+  elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
   elements.resetQueueButton.disabled = busy || queue.index === 0;
   elements.fileInput.disabled = busy;
   elements.fileButton.classList.toggle("btn--disabled", busy);
@@ -36,6 +106,8 @@ function updateControls() {
   elements.fileName.textContent = queue.fileName ? `${queue.fileName} · ${total} companies` : "No file selected";
   elements.progressText.textContent = `${queue.index} / ${total}`;
   elements.progressFill.style.width = total ? `${(queue.index / total) * 100}%` : "0%";
+
+  renderUnresolved();
 }
 
 function setCompanyName(name) {
@@ -44,64 +116,91 @@ function setCompanyName(name) {
 }
 
 // Runs one company search, reporting to the log; status is left to the caller.
-// Returns { ok, fatal, count }.
-async function runOne(name) {
+// Returns { ok, fatal, outcome, chosen, count, reason, error }.
+async function runOne(name, { interactive }) {
   const startedAt = Date.now();
   log.info(`Search started: "${name}"`);
   try {
-    const { count } = await searchCompany(name, log);
+    const result = await searchCompany(name, {
+      log,
+      waitForManualChoice: interactive,
+      shouldStop: () => stopRequested,
+      onManualWait: () => {
+        waitingManual = true;
+        status.running(`Pick the company for "${name}" in the Sales Navigator dropdown…`);
+        updateControls();
+      },
+    });
     const took = formatDuration(Date.now() - startedAt);
-    if (count === 0) {
-      log.warn(`"${name}": no leads list found on the page (${took})`);
+
+    if (result.outcome === "unresolved") {
+      addUnresolved(name, result.reason);
+      log.warn(`"${name}": left for a manual company choice (${result.reason})`);
     } else {
-      log.success(`"${name}": ${count} leads on the page (${took})`);
+      removeUnresolved(name);
+      if (result.count === 0) {
+        log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
+      } else {
+        log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
+      }
     }
-    return { ok: true, fatal: false, count };
+    return { ok: true, fatal: false, ...result };
   } catch (error) {
     log.error(`"${name}": ${error.message}`);
     return { ok: false, fatal: error instanceof FatalError, error };
+  } finally {
+    waitingManual = false;
+    updateControls();
   }
 }
 
-function describeResult(name, result) {
-  if (!result.ok) return `"${name}" failed: ${result.error.message}`;
-  return result.count === 0 ? `"${name}": no leads found` : `"${name}": ${result.count} leads found`;
-}
-
 function finishStatus(name, result) {
-  if (!result.ok) status.error(describeResult(name, result));
-  else if (result.count === 0) status.warn(describeResult(name, result));
-  else status.success(describeResult(name, result));
+  if (!result.ok) status.error(`"${name}" failed: ${result.error.message}`);
+  else if (result.outcome === "unresolved") status.warn(`"${name}" needs a manual company choice (${result.reason})`);
+  else if (result.count === 0) status.warn(`"${name}" → "${result.chosen}": no leads found`);
+  else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found`);
 }
 
 async function withBusy(task) {
   busy = true;
+  stopRequested = false;
   updateControls();
   try {
     return await task();
   } finally {
     busy = false;
+    stopRequested = false;
     updateControls();
   }
+}
+
+async function runInteractive(name) {
+  await withBusy(async () => {
+    status.running(`Searching "${name}"…`);
+    finishStatus(name, await runOne(name, { interactive: true }));
+  });
 }
 
 async function handleSearch() {
   const name = elements.companyName.value.trim();
   if (!name || busy) return;
   setCompanyName(name);
-  await withBusy(async () => {
-    status.running(`Searching "${name}"…`);
-    finishStatus(name, await runOne(name));
-  });
+  await runInteractive(name);
+}
+
+async function handleResolve(name) {
+  if (busy) return;
+  setCompanyName(name);
+  await runInteractive(name);
 }
 
 // Shared by Search next and Search all. Doesn't advance past a company when
 // the failure was fatal (wrong page...), so it can be retried.
-async function searchQueued() {
+async function searchQueued({ interactive }) {
   const name = queue.companies[queue.index];
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
-  const result = await runOne(name);
+  const result = await runOne(name, { interactive });
   if (!result.fatal) {
     queue.index++;
     persistQueue();
@@ -113,7 +212,7 @@ async function searchQueued() {
 async function handleSearchNext() {
   if (busy || queue.index >= queue.companies.length) return;
   await withBusy(async () => {
-    const { name, result } = await searchQueued();
+    const { name, result } = await searchQueued({ interactive: true });
     finishStatus(name, result);
   });
 }
@@ -133,51 +232,77 @@ async function interruptibleWait(ms) {
 async function handleSearchAll() {
   if (busy || queue.index >= queue.companies.length) return;
   batchRunning = true;
-  stopRequested = false;
   const stats = { found: 0, empty: 0, failed: 0 };
+  const leftForManual = [];
   const startedAt = Date.now();
   let fatalError = null;
+  let stopped = false;
 
   await withBusy(async () => {
     log.info(`Search all started: ${queue.companies.length - queue.index} companies left`);
-    while (queue.index < queue.companies.length && !stopRequested) {
-      const { result } = await searchQueued();
+    while (queue.index < queue.companies.length) {
+      if (stopRequested) {
+        stopped = true;
+        break;
+      }
+      const { name, result } = await searchQueued({ interactive: false });
       if (result.fatal) {
         fatalError = result.error;
         break;
       }
       if (!result.ok) stats.failed++;
+      else if (result.outcome === "unresolved") leftForManual.push(name);
       else if (result.count === 0) stats.empty++;
       else stats.found++;
 
       if (queue.index >= queue.companies.length) break;
       const [min, max] = TIMING.betweenCompaniesMs;
-      if (!(await interruptibleWait(randomBetween(min, max)))) break;
+      if (!(await interruptibleWait(randomBetween(min, max)))) {
+        stopped = true;
+        break;
+      }
     }
   });
 
   batchRunning = false;
   const took = formatDuration(Date.now() - startedAt);
-  const summary = `${stats.found} with leads, ${stats.empty} empty, ${stats.failed} failed`;
+  const summary =
+    `${stats.found} with leads, ${stats.empty} empty, ` +
+    `${leftForManual.length} need manual choice, ${stats.failed} failed`;
+
   if (fatalError) {
     log.error(`Search all stopped: ${fatalError.message}`);
     status.error(`Stopped: ${fatalError.message}`);
-  } else if (stopRequested) {
+  } else if (stopped) {
     log.warn(`Search all stopped by user after ${took}: ${summary}`);
     status.warn(`Stopped at ${queue.index} of ${queue.companies.length}: ${summary}`);
+  } else if (leftForManual.length || stats.failed) {
+    log.warn(`Search all finished in ${took}: ${summary}`);
+    status.warn(`Finished: ${summary}`);
   } else {
     log.success(`Search all finished in ${took}: ${summary}`);
-    (stats.failed ? status.warn : status.success)(`Finished: ${summary}`);
+    status.success(`Finished: ${summary}`);
   }
-  stopRequested = false;
+
+  if (leftForManual.length) {
+    log.warn(
+      `${leftForManual.length} companies need a manual company choice: ${leftForManual.join(", ")}. ` +
+        "Use Search in the \"Needs manual choice\" list."
+    );
+  }
   updateControls();
 }
 
 function handleStop() {
-  if (!batchRunning) return;
+  if (!(batchRunning || waitingManual)) return;
   stopRequested = true;
-  log.info("Stop requested: finishing the current company");
-  status.note("running", "Stopping after the current company…");
+  if (waitingManual) {
+    log.info("Stop requested: cancelling the manual choice");
+    status.note("running", "Cancelling the manual choice…");
+  } else {
+    log.info("Stop requested: finishing the current company");
+    status.note("running", "Stopping after the current company…");
+  }
   updateControls();
 }
 
@@ -215,6 +340,14 @@ function handleResetQueue() {
   updateControls();
 }
 
+function handleClearUnresolved() {
+  if (busy || !unresolved.length) return;
+  log.info(`Manual choice list cleared (${unresolved.length} companies)`);
+  unresolved = [];
+  persistUnresolved();
+  updateControls();
+}
+
 export async function initSearchControls(controlElements) {
   elements = controlElements;
 
@@ -226,6 +359,10 @@ export async function initSearchControls(controlElements) {
       index: Math.min(Math.max(Number(storedQueue.index) || 0, 0), storedQueue.companies.length),
     };
   }
+  const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
+  unresolved = (Array.isArray(storedUnresolved) ? storedUnresolved : [])
+    .filter((item) => typeof item?.name === "string")
+    .map(({ name, reason }) => ({ name, reason: String(reason ?? "") }));
   elements.companyName.value = await loadValue(STORAGE_KEYS.companyName, "");
 
   elements.companyName.addEventListener("input", updateControls);
@@ -239,6 +376,8 @@ export async function initSearchControls(controlElements) {
   elements.stopButton.addEventListener("click", handleStop);
   elements.resetQueueButton.addEventListener("click", handleResetQueue);
   elements.fileInput.addEventListener("change", handleFile);
+  elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
 
   updateControls();
+  if (unresolved.length) log.warn(`${unresolved.length} companies still need a manual company choice`);
 }

@@ -5,6 +5,11 @@ import { TIMING } from "../../constants/config.js";
 // missing...), as opposed to one company's search failing.
 export class FatalError extends Error {}
 
+export class WaitTimeoutError extends Error {}
+
+// A wait ended by the user (Stop).
+export class StoppedError extends Error {}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function withTimeout(promise, ms, message) {
@@ -51,9 +56,15 @@ export async function sendToContent(tabId, action, payload = {}, timeout = TIMIN
 }
 
 // Polls the tab's URL until `predicate(url)` holds; returns that URL.
-export async function waitForTabUrl(tabId, predicate, { timeout = TIMING.urlChangeTimeoutMs, description }) {
+// `shouldStop` lets the user cancel a long wait.
+export async function waitForTabUrl(
+  tabId,
+  predicate,
+  { timeout = TIMING.urlChangeTimeoutMs, description, shouldStop = () => false }
+) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
+    if (shouldStop()) throw new StoppedError(`Stopped while waiting for ${description}`);
     let tab;
     try {
       tab = await chrome.tabs.get(tabId);
@@ -63,5 +74,5 @@ export async function waitForTabUrl(tabId, predicate, { timeout = TIMING.urlChan
     if (tab.url && predicate(tab.url)) return tab.url;
     await sleep(400);
   }
-  throw new Error(`Timed out after ${timeout / 1000}s waiting for ${description}`);
+  throw new WaitTimeoutError(`Timed out after ${timeout / 1000}s waiting for ${description}`);
 }

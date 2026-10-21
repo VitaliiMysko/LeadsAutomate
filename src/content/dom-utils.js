@@ -88,6 +88,45 @@ window.leadsAutomate = window.leadsAutomate || {};
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
+  const KEYS = {
+    ArrowDown: { code: "ArrowDown", keyCode: 40 },
+    ArrowUp: { code: "ArrowUp", keyCode: 38 },
+    Enter: { code: "Enter", keyCode: 13 },
+    Escape: { code: "Escape", keyCode: 27 },
+  };
+
+  function pressKey(element, key) {
+    const { code, keyCode } = KEYS[key];
+    const init = { key, code, keyCode, which: keyCode, bubbles: true, cancelable: true, composed: true };
+    element.dispatchEvent(new KeyboardEvent("keydown", init));
+    element.dispatchEvent(new KeyboardEvent("keyup", init));
+  }
+
+  // Everything that tells how an element can be interacted with, for
+  // diagnosing why a script action had no effect.
+  function describeElementDetailed(element) {
+    if (!element) return "(none)";
+    const attributes = ["id", "role", "type", "aria-label", "aria-pressed", "aria-expanded", "tabindex", "disabled"]
+      .filter((name) => element.hasAttribute(name))
+      .map((name) => `${name}="${element.getAttribute(name)}"`);
+    const dataAttributes = [...element.attributes]
+      .filter(({ name }) => name.startsWith("data-"))
+      .map(({ name, value }) => `${name}="${value.slice(0, 30)}"`);
+    const classes = [...element.classList].slice(0, 4).join(".");
+    const rect = element.getBoundingClientRect();
+    return (
+      `<${element.tagName.toLowerCase()}${classes ? `.${classes}` : ""} ${[...attributes, ...dataAttributes].join(" ")}>` +
+      ` visible=${isVisible(element)} size=${Math.round(rect.width)}x${Math.round(rect.height)}` +
+      ` text="${(element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60)}"`
+    );
+  }
+
+  function truncatedHtml(element, limit = 1200) {
+    if (!element) return "";
+    const html = element.outerHTML.replace(/\s+/g, " ").replace(/<!---->/g, "");
+    return html.length > limit ? `${html.slice(0, limit)}… (${html.length} chars)` : html;
+  }
+
   function normalizeText(value) {
     return String(value ?? "").replace(/\s+/g, " ").trim().toLocaleLowerCase();
   }
@@ -98,7 +137,6 @@ window.leadsAutomate = window.leadsAutomate || {};
   }
 
   Object.assign(window.leadsAutomate, {
-    sleep,
     humanDelay,
     isVisible,
     queryFirst,
@@ -107,6 +145,9 @@ window.leadsAutomate = window.leadsAutomate || {};
     waitForDomQuiet,
     setInputValue,
     typeText,
+    pressKey,
+    describeElementDetailed,
+    truncatedHtml,
     normalizeText,
     log,
   });

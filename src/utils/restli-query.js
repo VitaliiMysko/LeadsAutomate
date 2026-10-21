@@ -108,6 +108,43 @@ export function parseRestli(text) {
   return value;
 }
 
+// encodeURIComponent leaves parentheses alone, but they delimit Rest.li values.
+function encodeScalar(value) {
+  return encodeURIComponent(String(value ?? "")).replace(/\(/g, "%28").replace(/\)/g, "%29");
+}
+
+// Inverse of parseRestli: objects as `(key:value,...)`, arrays as
+// `List(...)`, scalars percent-encoded.
+export function serializeRestli(value) {
+  if (Array.isArray(value)) return `List(${value.map(serializeRestli).join(",")})`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).map(([key, item]) => `${encodeScalar(key)}:${serializeRestli(item)}`);
+    return `(${entries.join(",")})`;
+  }
+  return encodeScalar(value);
+}
+
+// The same search URL with every value of one filter type removed, or null
+// when the URL has no parsable query. Opening it is how a filter is cleared:
+// Sales Navigator ignores script-generated clicks on its remove buttons.
+export function urlWithoutFilter(url, type) {
+  let parsedUrl;
+  let parsed;
+  try {
+    parsedUrl = new URL(url);
+    parsed = parseRestli(parsedUrl.searchParams.get("query") ?? "");
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+  if (Array.isArray(parsed.filters)) {
+    parsed.filters = parsed.filters.filter((filter) => filter?.type !== type);
+  }
+  parsedUrl.searchParams.set("query", serializeRestli(parsed));
+  return parsedUrl.toString();
+}
+
 // Returns the search's filters as [{ type, values: [{ id, text, selectionType }] }],
 // or null when the URL carries no parsable `query` (e.g. a saved search
 // opened by id, before any filter is touched).
@@ -140,6 +177,16 @@ export function getSearchFilters(url) {
           selectionType: value.selectionType ?? SELECTION_TYPES.INCLUDED,
         })),
     }));
+}
+
+// Values ({ id, text, selectionType }) of one filter type with the given
+// selection type, in URL order. A value picked from the typeahead carries
+// LinkedIn's id (e.g. urn:li:organization:123); free text has none.
+export function getFilterValues(url, type, selectionType = SELECTION_TYPES.INCLUDED) {
+  return (getSearchFilters(url) || [])
+    .filter((filter) => filter.type === type)
+    .flatMap((filter) => filter.values)
+    .filter((value) => value.selectionType === selectionType);
 }
 
 // Unique texts of one filter type with the given selection type, in URL order.

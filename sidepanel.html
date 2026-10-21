@@ -88,6 +88,14 @@
         <button type="button" id="stop-btn" class="btn btn--danger">Stop</button>
         <button type="button" id="reset-queue-btn" class="btn btn--secondary btn--icon" title="Start the list over" aria-label="Start the list over">↺</button>
       </div>
+      <div id="unresolved-block" class="unresolved" hidden>
+        <div class="unresolved__head">
+          <span class="unresolved__title">Needs manual choice</span>
+          <span id="unresolved-count" class="unresolved__count"></span>
+          <button type="button" id="unresolved-clear-btn" class="btn btn--secondary btn--small">Clear</button>
+        </div>
+        <ul id="unresolved-list" class="unresolved__list"></ul>
+      </div>
     </section>
 
     <section class="card log-card">

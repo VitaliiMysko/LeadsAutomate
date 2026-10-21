@@ -68,6 +68,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     searchAllButton: $("search-all-btn"),
     stopButton: $("stop-btn"),
     resetQueueButton: $("reset-queue-btn"),
+    unresolvedBlock: $("unresolved-block"),
+    unresolvedCount: $("unresolved-count"),
+    unresolvedList: $("unresolved-list"),
+    unresolvedClearButton: $("unresolved-clear-btn"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
