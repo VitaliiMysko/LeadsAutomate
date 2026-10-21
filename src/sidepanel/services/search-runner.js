@@ -3,7 +3,7 @@ import { chooseCompanyOption } from "../../utils/company-match.js";
 import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
 import { logoDistance, logoSimilarity } from "../../utils/image-hash.js";
 import { MATCH_KINDS } from "../../utils/match-records.js";
-import { TIMING, LOGO_THRESHOLDS } from "../../constants/config.js";
+import { TIMING, LOGO_THRESHOLDS, LOGO_FIRST } from "../../constants/config.js";
 import { formatDuration } from "../../utils/text-utils.js";
 import { hashRemoteLogo } from "./logo-service.js";
 import { getSearchTab, sendToContent, waitForTabUrl, FatalError, StoppedError, WaitTimeoutError } from "./tab-service.js";
@@ -213,7 +213,7 @@ async function checkLogos(choice, options, logos, fileLogo, log) {
         .join(", ")
   );
 
-  const checked = applyLogoCheck(choice, distances, LOGO_THRESHOLDS);
+  const checked = applyLogoCheck(choice, distances, LOGO_THRESHOLDS, { logoFirst: LOGO_FIRST });
   const verdict = checked.logo?.verdict;
   if (verdict) {
     const [level, text] = LOGO_VERDICT_LOG[verdict];

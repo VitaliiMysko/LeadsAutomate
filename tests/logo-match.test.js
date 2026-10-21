@@ -75,3 +75,38 @@ describe("applyLogoCheck", () => {
     expect(applyLogoCheck(noChoice, [4, 6], thresholds)).toBe(noChoice);
   });
 });
+
+describe("applyLogoCheck with logoFirst", () => {
+  const logoFirst = { logoFirst: true };
+
+  test("a unique logo match beats even an exact-name choice", () => {
+    const result = applyLogoCheck(byExactName, [28, 2], thresholds, logoFirst);
+    expect(result).toMatchObject({ index: 1, rule: LOGO_RULE });
+    expect(result.description).toMatch(/logo takes priority over option #1/);
+    expect(result.logo).toEqual({ verdict: LOGO_VERDICTS.OVERRIDDEN, distance: 2, rejectedDistance: 28 });
+  });
+
+  test("also when the name's option shows no logo", () => {
+    expect(applyLogoCheck(byExactName, [null, 2], thresholds, logoFirst).logo).toEqual({
+      verdict: LOGO_VERDICTS.OVERRIDDEN,
+      distance: 2,
+      rejectedDistance: null,
+    });
+  });
+
+  test("logo and name agree: confirmed, name rule kept", () => {
+    expect(applyLogoCheck(byExactName, [3, 28], thresholds, logoFirst)).toEqual({
+      ...byExactName,
+      logo: { verdict: LOGO_VERDICTS.CONFIRMED, distance: 3 },
+    });
+  });
+
+  test("no unique logo match: the usual rules apply", () => {
+    expect(applyLogoCheck(byExactName, [28, 25], thresholds, logoFirst).logo.verdict).toBe(LOGO_VERDICTS.DIFFERENT_KEPT);
+    expect(applyLogoCheck(byExactName, [4, 7], thresholds, logoFirst).logo.verdict).toBe(LOGO_VERDICTS.CONFIRMED);
+  });
+
+  test("no name choice: a unique logo match chooses", () => {
+    expect(applyLogoCheck(noChoice, [26, 3], thresholds, logoFirst).logo.verdict).toBe(LOGO_VERDICTS.CHOSEN_BY_LOGO);
+  });
+});

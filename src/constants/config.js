@@ -29,6 +29,10 @@ export const LOGO_THRESHOLDS = {
   margin: 6,
 };
 
+// Experiment: a unique logo match picks the option even over an exact name
+// match. false = the logo only confirms / corrects weaker name choices.
+export const LOGO_FIRST = true;
+
 export const LEADS_COUNT = { min: 0, max: 100, default: 1 };
 
 export const STORAGE_KEYS = {
