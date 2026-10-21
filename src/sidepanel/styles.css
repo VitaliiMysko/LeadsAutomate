@@ -613,6 +613,79 @@ input[readonly] {
   text-align: right;
 }
 
+/* ---- needs manual choice ---------------------------------------------- */
+
+.unresolved {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--warn-soft);
+}
+
+.unresolved[hidden] {
+  display: none;
+}
+
+.unresolved__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unresolved__title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--warn);
+}
+
+.unresolved__count {
+  flex: 1;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--warn);
+  font-variant-numeric: tabular-nums;
+}
+
+.unresolved__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.unresolved__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.unresolved__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.unresolved__name {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.unresolved__reason {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* ---- log --------------------------------------------------------------- */
 
 .log-tools {

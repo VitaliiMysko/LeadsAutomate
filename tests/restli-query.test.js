@@ -1,6 +1,9 @@
 import {
   parseRestli,
+  serializeRestli,
+  urlWithoutFilter,
   getSearchFilters,
+  getFilterValues,
   getFilterTexts,
   isPeopleSearchUrl,
   FILTER_TYPES,
@@ -64,6 +67,16 @@ describe("getSearchFilters / getFilterTexts", () => {
     expect(getFilterTexts(searchUrl(query), FILTER_TYPES.CURRENT_COMPANY)).toEqual(["Microsoft"]);
   });
 
+  test("getFilterValues keeps ids, so free text (no id) can be told apart", () => {
+    expect(getFilterValues(searchUrl(query), FILTER_TYPES.CURRENT_TITLE)).toEqual([
+      { id: "8", text: "Chief Technology Officer", selectionType: "INCLUDED" },
+      { id: null, text: "Head of R&D", selectionType: "INCLUDED" },
+    ]);
+    expect(getFilterValues(searchUrl(query), FILTER_TYPES.CURRENT_TITLE, SELECTION_TYPES.EXCLUDED)).toEqual([
+      { id: "9", text: "Intern", selectionType: "EXCLUDED" },
+    ]);
+  });
+
   test("returns null without a parsable query", () => {
     expect(getSearchFilters("https://www.linkedin.com/sales/search/people?savedSearchId=5")).toBeNull();
     expect(getSearchFilters(searchUrl("(filters:List(("))).toBeNull();
@@ -73,6 +86,48 @@ describe("getSearchFilters / getFilterTexts", () => {
 
   test("a query without filters yields an empty list", () => {
     expect(getSearchFilters(searchUrl("(spellCorrectionEnabled:true,keywords:java)"))).toEqual([]);
+  });
+});
+
+describe("serializeRestli", () => {
+  test("round-trips through parseRestli", () => {
+    const value = {
+      recentSearchParam: { id: "123", doLogHistory: "true" },
+      filters: [
+        { type: "CURRENT_COMPANY", values: [{ id: "urn:li:organization:1035", text: "Moriyama - Umbraco UK/US, Ltd (x)", selectionType: "INCLUDED" }] },
+      ],
+      keywords: "",
+      empty: [],
+    };
+    expect(parseRestli(serializeRestli(value))).toEqual(value);
+  });
+
+  test("encodes reserved characters inside scalars", () => {
+    expect(serializeRestli({ text: "A, B (C): D" })).toBe("(text:A%2C%20B%20%28C%29%3A%20D)");
+  });
+});
+
+describe("urlWithoutFilter", () => {
+  const query =
+    "(recentSearchParam:(id:123,doLogHistory:true),filters:List(" +
+    `(type:CURRENT_TITLE,values:List((id:8,text:${enc("Chief Technology Officer")},selectionType:INCLUDED))),` +
+    `(type:CURRENT_COMPANY,values:List((id:${enc("urn:li:organization:1")},text:${enc("Moriyama - Umbraco Platinum Partner UK/US")},selectionType:INCLUDED),` +
+    `(text:Acme,selectionType:EXCLUDED)))` +
+    "))";
+
+  test("drops every value of the filter and keeps the rest of the search", () => {
+    const url = urlWithoutFilter(searchUrl(query), FILTER_TYPES.CURRENT_COMPANY);
+    expect(getFilterTexts(url, FILTER_TYPES.CURRENT_COMPANY)).toEqual([]);
+    expect(getFilterTexts(url, FILTER_TYPES.CURRENT_COMPANY, SELECTION_TYPES.EXCLUDED)).toEqual([]);
+    expect(getFilterTexts(url, FILTER_TYPES.CURRENT_TITLE)).toEqual(["Chief Technology Officer"]);
+    expect(getSearchFilters(url).map((filter) => filter.type)).toEqual(["CURRENT_TITLE"]);
+    expect(new URL(url).searchParams.get("sessionId")).toBe("abc");
+    expect(new URL(url).pathname).toBe("/sales/search/people");
+  });
+
+  test("returns null without a parsable query", () => {
+    expect(urlWithoutFilter("https://www.linkedin.com/sales/search/people?savedSearchId=5", "CURRENT_COMPANY")).toBeNull();
+    expect(urlWithoutFilter("not a url", "CURRENT_COMPANY")).toBeNull();
   });
 });
 
