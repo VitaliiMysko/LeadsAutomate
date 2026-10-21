@@ -203,6 +203,57 @@ h2 {
 
 /* ---- job list & board -------------------------------------------------- */
 
+/* Job titles section: a header that collapses Job list + columns. */
+.collapsible > .collapsible__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.collapsible > .collapsible__head::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible > .collapsible__head:hover {
+  border-color: var(--text-muted);
+}
+
+.collapsible__chevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--text-muted);
+  transition: transform 0.15s;
+}
+
+.collapsible[open] .collapsible__chevron {
+  transform: rotate(90deg);
+}
+
+.collapsible__summary {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsible[open] > .collapsible__head {
+  margin-bottom: 8px;
+}
+
 #job-board {
   display: flex;
   flex-direction: column;
@@ -292,15 +343,24 @@ h2 {
   padding: 2px 4px;
 }
 
+/* Fixed height: long columns scroll instead of stretching the panel. */
 .rank-list {
   list-style: none;
   margin: 0;
-  padding: 0;
-  min-height: 90px;
+  padding: 0 2px 0 0;
+  height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   display: flex;
   flex-direction: column;
   gap: 4px;
   border-radius: 6px;
+}
+
+/* Items keep their height in the fixed-height list; it scrolls instead. */
+.rank-list > * {
+  flex-shrink: 0;
 }
 
 .rank-list__placeholder {

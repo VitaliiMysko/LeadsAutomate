@@ -48,6 +48,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   await initJobBoard({
     root: $("job-board"),
+    section: $("job-section"),
+    sectionSummary: $("job-section-summary"),
     pool: $("job-pool"),
     poolCount: $("job-pool-count"),
     poolEmpty: $("job-pool-empty"),
