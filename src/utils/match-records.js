@@ -5,10 +5,12 @@ export const MATCH_KINDS = { AUTO: "auto", MANUAL: "manual" };
 
 export const MATCH_RECORDS_LIMIT = 5000;
 
-export function createMatchRecord({ typed, chosen, options, rule, reason }, date = new Date()) {
+export function createMatchRecord({ typed, chosen, options, rule, reason, logo }, date = new Date()) {
   const record = { time: date.toISOString(), typed, chosen };
   if (rule) record.rule = rule;
   if (reason) record.reason = reason;
+  // Logo check outcome: { verdict, distance, ... } (logo-match.js).
+  if (logo) record.logo = logo;
   record.options = [...options];
   return record;
 }

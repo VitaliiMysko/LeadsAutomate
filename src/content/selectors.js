@@ -10,6 +10,8 @@ window.leadsAutomate.SELECTORS = {
   filterExpandButton: ['button[aria-expanded="false"]'],
   filterInput: ['input[role="combobox"]', 'input[type="text"]', "input:not([type])"],
   suggestionOption: ['[role="option"]'],
+  // The company logo inside a dropdown option.
+  optionLogo: ["img"],
   resultsContainer: ["#search-results-container", "main"],
   resultItem: ['[data-x-search-result="LEAD"]', "ol.artdeco-list > li.artdeco-list__item"],
 };

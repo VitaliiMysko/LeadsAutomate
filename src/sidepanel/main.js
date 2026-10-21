@@ -74,6 +74,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     unresolvedCount: $("unresolved-count"),
     unresolvedList: $("unresolved-list"),
     unresolvedClearButton: $("unresolved-clear-btn"),
+    logosRow: $("logos-row"),
+    logoFolderInput: $("logo-folder"),
+    logoFolderButton: $("logo-folder-btn"),
+    logosStatus: $("logos-status"),
+    currentLogo: $("current-logo"),
+    currentFileLogo: $("current-file-logo"),
+    currentFoundLogo: $("current-found-logo"),
+    currentLogoName: $("current-logo-name"),
+    currentLogoVerdict: $("current-logo-verdict"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {

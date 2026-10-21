@@ -1,7 +1,9 @@
 import { STORAGE_KEYS, TIMING } from "../../constants/config.js";
-import { parseCompaniesText } from "../../utils/companies-file.js";
+import { parseCompaniesFile } from "../../utils/companies-file.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
+import { logoSimilarity } from "../../utils/image-hash.js";
 import { searchCompany } from "../services/search-runner.js";
+import { loadCompanyLogos } from "../services/logo-service.js";
 import { FatalError } from "../services/tab-service.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
@@ -14,8 +16,14 @@ import { status } from "./status.js";
 // Search, Search next and the list's Search wait for the user to pick the
 // company by hand when it can't be chosen automatically; Search all never
 // waits: such companies go to the list and the run moves on.
+//
+// A CSV companies file may name a logo per company (a path on this
+// computer); the user picks the folder holding them once, and their hashes
+// and thumbnails are kept (`logos`) so a search can check the dropdown's
+// logos against them.
 let elements = null;
-let queue = { fileName: "", companies: [], index: 0 };
+let queue = { fileName: "", companies: [], index: 0 }; // companies: [{ name, logoPath }]
+let logos = {}; // company name → { hash, thumb }
 let unresolved = []; // [{ name, reason }]
 let busy = false;
 let batchRunning = false;
@@ -24,6 +32,42 @@ let stopRequested = false;
 
 function persistQueue() {
   saveValue(STORAGE_KEYS.companyQueue, queue);
+}
+
+function persistLogos() {
+  saveValue(STORAGE_KEYS.companyLogos, logos);
+}
+
+// The companies-file entry for a name (also for names typed or taken from
+// the manual choice list), for its logo.
+function findCompany(name) {
+  return queue.companies.find((company) => isSameName(company.name, name)) ?? null;
+}
+
+function logoFor(name) {
+  const company = findCompany(name);
+  return company ? logos[company.name] ?? null : null;
+}
+
+// "Current company" strip: the file's logo while a company is processed,
+// then the logo of the option chosen in the dropdown with their similarity.
+function showCurrentLogo(name, result = null) {
+  const fileLogo = logoFor(name);
+  elements.currentLogo.hidden = !fileLogo;
+  if (!fileLogo) return;
+  elements.currentFileLogo.src = fileLogo.thumb;
+  elements.currentLogoName.textContent = name;
+
+  const logo = result?.logo;
+  elements.currentFoundLogo.hidden = !logo?.url;
+  if (logo?.url) elements.currentFoundLogo.src = logo.url;
+  elements.currentLogoVerdict.textContent = !result
+    ? "searching…"
+    : logo?.distance !== undefined
+      ? `${logoSimilarity(logo.distance)}% similar · ${logo.verdict}`
+      : result.outcome === "unresolved"
+        ? "not chosen"
+        : "no logo to compare";
 }
 
 function persistUnresolved() {
@@ -102,6 +146,17 @@ function updateControls() {
   elements.fileInput.disabled = busy;
   elements.fileButton.classList.toggle("btn--disabled", busy);
 
+  const withLogo = queue.companies.filter((company) => company.logoPath);
+  const loaded = withLogo.filter((company) => logos[company.name]).length;
+  elements.logosRow.hidden = withLogo.length === 0;
+  elements.logoFolderInput.disabled = busy;
+  elements.logoFolderButton.classList.toggle("btn--disabled", busy);
+  elements.logosStatus.textContent =
+    loaded === withLogo.length
+      ? `Logos: all ${loaded} loaded`
+      : `Logos: ${loaded} of ${withLogo.length} loaded. Choose the folder holding them`;
+  elements.logosStatus.classList.toggle("logos-status--warn", loaded < withLogo.length);
+
   const total = queue.companies.length;
   elements.fileName.textContent = queue.fileName ? `${queue.fileName} · ${total} companies` : "No file selected";
   elements.progressText.textContent = `${queue.index} / ${total}`;
@@ -120,9 +175,12 @@ function setCompanyName(name) {
 async function runOne(name, { interactive }) {
   const startedAt = Date.now();
   log.info(`Search started: "${name}"`);
+  const fileLogo = logoFor(name);
+  showCurrentLogo(name);
   try {
     const result = await searchCompany(name, {
       log,
+      fileLogo,
       waitForManualChoice: interactive,
       shouldStop: () => stopRequested,
       onManualWait: () => {
@@ -132,6 +190,7 @@ async function runOne(name, { interactive }) {
       },
     });
     const took = formatDuration(Date.now() - startedAt);
+    showCurrentLogo(name, result);
 
     if (result.outcome === "unresolved") {
       addUnresolved(name, result.reason);
@@ -197,7 +256,7 @@ async function handleResolve(name) {
 // Shared by Search next and Search all. Doesn't advance past a company when
 // the failure was fatal (wrong page...), so it can be retried.
 async function searchQueued({ interactive }) {
-  const name = queue.companies[queue.index];
+  const { name } = queue.companies[queue.index];
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
   const result = await runOne(name, { interactive });
@@ -312,7 +371,7 @@ async function handleFile() {
   if (!file) return;
 
   try {
-    const companies = parseCompaniesText(await file.text());
+    const companies = parseCompaniesFile(await file.text());
     if (!companies.length) {
       log.error(`"${file.name}" contains no company names`);
       status.error(`No company names in "${file.name}"`);
@@ -320,8 +379,12 @@ async function handleFile() {
     }
     queue = { fileName: file.name, companies, index: 0 };
     persistQueue();
-    setCompanyName(companies[0]);
-    log.info(`Loaded ${companies.length} companies from "${file.name}"`);
+    logos = {};
+    persistLogos();
+    setCompanyName(companies[0].name);
+    const withLogo = companies.filter((company) => company.logoPath).length;
+    log.info(`Loaded ${companies.length} companies from "${file.name}"${withLogo ? `, ${withLogo} with a logo` : ""}`);
+    if (withLogo) log.warn("Choose the folder holding the logos so they can be compared with LinkedIn's");
     status.idle(`${companies.length} companies loaded`);
   } catch (error) {
     log.error(`Could not read "${file.name}": ${error.message}`);
@@ -335,9 +398,33 @@ function handleResetQueue() {
   if (busy) return;
   queue.index = 0;
   persistQueue();
-  if (queue.companies.length) setCompanyName(queue.companies[0]);
+  if (queue.companies.length) setCompanyName(queue.companies[0].name);
   log.info("Companies list restarted from the beginning");
   updateControls();
+}
+
+// The user picked the folder holding the CSV's logo files: hash them all.
+async function handleLogoFolder() {
+  const files = [...(elements.logoFolderInput.files ?? [])];
+  elements.logoFolderInput.value = "";
+  if (!files.length || busy) return;
+
+  await withBusy(async () => {
+    status.running("Reading logos…");
+    const result = await loadCompanyLogos(queue.companies, files, (done, total) =>
+      status.note("running", `Reading logos… ${done} of ${total}`)
+    );
+    logos = Object.fromEntries(result.logos);
+    persistLogos();
+
+    const total = queue.companies.filter((company) => company.logoPath).length;
+    const summary = `${result.logos.size} of ${total} logos loaded`;
+    if (result.missing.length) log.warn(`Logo file not found in the folder for: ${result.missing.join(", ")}`);
+    if (result.failed.length) log.warn(`Logo couldn't be read (or is blank) for: ${result.failed.join(", ")}`);
+    const complete = result.logos.size === total;
+    (complete ? log.success : log.warn)(summary);
+    (complete ? status.success : status.warn)(summary);
+  });
 }
 
 function handleClearUnresolved() {
@@ -353,12 +440,19 @@ export async function initSearchControls(controlElements) {
 
   const storedQueue = await loadValue(STORAGE_KEYS.companyQueue, null);
   if (Array.isArray(storedQueue?.companies)) {
+    // Entries were plain names before logos (v0.3).
+    const companies = storedQueue.companies
+      .map((entry) => (typeof entry === "string" ? { name: entry, logoPath: null } : entry))
+      .filter((entry) => typeof entry?.name === "string")
+      .map(({ name, logoPath }) => ({ name, logoPath: typeof logoPath === "string" ? logoPath : null }));
     queue = {
       fileName: String(storedQueue.fileName ?? ""),
-      companies: storedQueue.companies.filter((name) => typeof name === "string"),
-      index: Math.min(Math.max(Number(storedQueue.index) || 0, 0), storedQueue.companies.length),
+      companies,
+      index: Math.min(Math.max(Number(storedQueue.index) || 0, 0), companies.length),
     };
   }
+  const storedLogos = await loadValue(STORAGE_KEYS.companyLogos, {});
+  logos = storedLogos && typeof storedLogos === "object" ? storedLogos : {};
   const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
   unresolved = (Array.isArray(storedUnresolved) ? storedUnresolved : [])
     .filter((item) => typeof item?.name === "string")
@@ -376,6 +470,7 @@ export async function initSearchControls(controlElements) {
   elements.stopButton.addEventListener("click", handleStop);
   elements.resetQueueButton.addEventListener("click", handleResetQueue);
   elements.fileInput.addEventListener("change", handleFile);
+  elements.logoFolderInput.addEventListener("change", handleLogoFolder);
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
 
   updateControls();

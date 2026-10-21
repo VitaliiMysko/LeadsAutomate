@@ -2,7 +2,7 @@
 
 Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. It is meant to work alongside the [Lead generator](../LeadGenerator) extension; that integration isn't implemented yet.
 
-## Features (v0.3)
+## Features (v0.4)
 
 The panel shows these sections, top to bottom:
 1. status area;
@@ -27,18 +27,27 @@ The panel shows these sections, top to bottom:
 
     The log names the rule that chose the company, or the reason no company could be chosen.
   - **Manual choice**: when no rule applies, **Search**, **Search next** and the list's **Search** leave the dropdown open and wait up to 5 min for you to pick the company in Sales Navigator. **Stop** cancels the wait. A cancelled or timed-out wait puts the company on the *Needs manual choice* list.
-- **Companies file**: a text file with company names separated by commas (line breaks also work). Duplicates and empty entries are skipped.
+- **Companies file**: one of two formats. Duplicates and empty entries are skipped.
+  - A text file with company names separated by commas (line breaks also work).
+  - A CSV with a header row: the company names in a `company_name` column, and optionally a `logo` column with the path of the company's logo image on this computer. Columns may be in any order, separated by `,` or `;`.
+  - **Logos**: when the CSV has logos, click **Choose logos folder** and pick the folder that holds them. The files are matched to the companies by file name. The extension keeps each logo's fingerprint (a perceptual hash) and a thumbnail, so you only need to pick the folder again after loading a new CSV.
   - **Search next**: searches the next company in the list.
   - **Search all**: searches the remaining companies one by one, with a random pause of 6–12 s between them. It never waits for you: a company that can't be chosen automatically goes to the *Needs manual choice* list and the run continues. At the end, the status area and the log report how many companies need a manual choice, and which ones. **Stop** ends the run after the current company. **↺** restarts the list from the beginning.
   - The progress bar shows processed / total companies. The company being processed is shown in the *Name company* field.
   - The list and the current position are remembered after the panel is closed.
   - **Needs manual choice**: companies waiting for a manual choice, each with the reason. **Search** runs that company with a manual choice, and the company leaves the list once its filter is applied. **×** or **Clear** removes companies from the list.
-- **Match records** (internal, not shown in the UI and never written to disk): every company choice is stored inside the extension, automatic choices under `auto`, manual ones under `manual`. A record holds `time`, `typed` (the name searched for), `chosen` (the company applied), `rule` (auto) or `reason` (why the automatic choice failed, manual), and `options` (all names in the dropdown). They're kept to tune the automatic choice later. Only the last 5000 records of each kind are kept.
+- **Logo check**: when the company being searched has a logo from the CSV and the dropdown options show logos, the extension compares them. It uses a perceptual hash that copes with differences in size, padding, JPEG compression, background, and light-on-dark versions. The log lists each option's similarity, and the Companies file card shows both logos with their similarity while the company is processed.
+  - A matching logo confirms the choice made by name.
+  - When the name matches exactly, a different logo only produces a warning, because a company's LinkedIn logo may differ from the one in the file.
+  - When the choice came from a weaker rule (the only option, or a match ignoring the legal form), a clearly different logo hands the choice to the one option whose logo matches. If no option matches, the company goes to *Needs manual choice*.
+  - When the name rules can't choose, an option is chosen if its logo alone clearly matches.
+  - The thresholds are in `LOGO_THRESHOLDS` (`src/constants/config.js`). They were set on the 170 Umbraco partner logos compared with small JPEG copies: the same logo is within 10 in about 75% of cases, and different logos are 20 or more apart in about 99.8% of cases.
+- **Match records** (internal, not shown in the UI and never written to disk): every company choice is stored inside the extension, automatic choices under `auto`, manual ones under `manual`. A record holds `time`, `typed` (the name searched for), `chosen` (the company applied), `rule` (auto) or `reason` (why the automatic choice failed, manual), `options` (all names in the dropdown) and, when a logo was compared, `logo` (verdict and distance). They're kept to tune the automatic choice later. Only the last 5000 records of each kind are kept.
 - **Status area**: shows the current operation, how long it has been running, and its outcome or total time.
 - **Log**: a scrollable list with time-stamped `DEBUG` / `INFO` / `OK` / `WARN` / `ERROR` entries, with Copy (copies the visible entries) and Clear buttons. Lines marked `[page]` come from the script running on the LinkedIn page.
   - **Quick filters**: one toggle per marker with its entry count. Click a toggle to show or hide that marker, double-click it to show only that marker, or click **All** to show everything. The selection is remembered.
 
-Board (including manual titles), lead counts, company name, the companies list, the manual choice list, match records (key `companyMatchRecords`) and the log filter selection are kept in `chrome.storage.local`.
+Board (including manual titles), lead counts, company name, the companies list, the logos' hashes and thumbnails, the manual choice list, match records (key `companyMatchRecords`) and the log filter selection are kept in `chrome.storage.local`.
 
 ## Install (development)
 
