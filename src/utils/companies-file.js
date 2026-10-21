@@ -3,6 +3,8 @@ import { parseCsv } from "./csv.js";
 
 const NAME_COLUMN = "company_name";
 const LOGO_COLUMN = "logo";
+// Kept with each company for the match records (signals for later analysis).
+const EXTRA_COLUMNS = ["website", "country"];
 
 function cleanName(value) {
   return String(value ?? "")
@@ -36,22 +38,27 @@ export function parseCompaniesText(text) {
   ).map(({ name }) => name);
 }
 
-// Parses a CSV with a header row holding a `company_name` column and an
-// optional `logo` column (the path of a logo image on the user's computer).
-// Returns [{ name, logoPath }] (logoPath null when empty), or null when the
-// file has no `company_name` column.
+// Parses a CSV with a header row holding a `company_name` column, an
+// optional `logo` column (the path of a logo image on the user's computer)
+// and optional `website` / `country` columns. Returns [{ name, logoPath,
+// website, country }] (null where empty), or null when the file has no
+// `company_name` column.
 export function parseCompaniesCsv(text) {
   const [header, ...rows] = parseCsv(text);
   if (!header) return null;
   const columns = header.map((cell) => cell.trim().toLowerCase());
   const nameIndex = columns.indexOf(NAME_COLUMN);
   if (nameIndex === -1) return null;
-  const logoIndex = columns.indexOf(LOGO_COLUMN);
+  const cell = (cells, column) => {
+    const index = columns.indexOf(column);
+    return (index === -1 ? "" : (cells[index] ?? "").trim()) || null;
+  };
 
   return dedupe(
     rows.map((cells) => ({
       name: cleanName(cells[nameIndex]),
-      logoPath: (logoIndex === -1 ? "" : (cells[logoIndex] ?? "").trim()) || null,
+      logoPath: cell(cells, LOGO_COLUMN),
+      ...Object.fromEntries(EXTRA_COLUMNS.map((column) => [column, cell(cells, column)])),
     }))
   );
 }

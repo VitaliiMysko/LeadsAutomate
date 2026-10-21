@@ -1,32 +1,60 @@
-import { createMatchRecord, appendCapped, companyIdFromUrn } from "../src/utils/match-records.js";
+import { createMatchRecord, appendCapped, companyIdFromUrn, MATCH_MODES } from "../src/utils/match-records.js";
 
 const date = new Date("2026-10-21T10:00:00.000Z");
+const options = [
+  { index: 0, label: "Ecreo" },
+  { index: 1, label: "eCreo" },
+];
 
 describe("createMatchRecord", () => {
-  test("auto record keeps the company id and rule, omits the reason", () => {
-    expect(
-      createMatchRecord(
-        { typed: "Acme", chosen: "Acme GmbH", companyId: "2781504", rule: "legal-form", options: ["Acme GmbH", "X"] },
-        date
-      )
-    ).toEqual({
+  test("labeling record: chosen position and whether the prediction was right", () => {
+    const record = createMatchRecord(
+      {
+        mode: MATCH_MODES.LABELING,
+        typed: "eCreo",
+        chosen: "eCreo",
+        companyId: "2389174",
+        options,
+        prediction: { index: 0, label: "Ecreo", rule: "exact" },
+        csv: { website: "ecreo.pl", country: "Poland", hasLogo: true },
+        leads: 4,
+        pickMs: 5200,
+      },
+      date
+    );
+    expect(record).toEqual({
       time: "2026-10-21T10:00:00.000Z",
-      typed: "Acme",
-      chosen: "Acme GmbH",
-      companyId: "2781504",
-      rule: "legal-form",
-      options: ["Acme GmbH", "X"],
+      mode: "labeling",
+      typed: "eCreo",
+      chosen: "eCreo",
+      companyId: "2389174",
+      chosenIndex: 1,
+      chosenInList: true,
+      prediction: { index: 0, label: "Ecreo", rule: "exact" },
+      predictionCorrect: false,
+      pickMs: 5200,
+      leads: 4,
+      csv: { website: "ecreo.pl", country: "Poland", hasLogo: true },
+      options,
     });
   });
 
-  test("manual record keeps why the automatic choice failed", () => {
-    const record = createMatchRecord({ typed: "Acme", chosen: "Acme Labs", reason: "none matches", options: [] }, date);
-    expect(record).not.toHaveProperty("rule");
-    expect(record.reason).toBe("none matches");
+  test("a company that wasn't among the options", () => {
+    const record = createMatchRecord({ mode: MATCH_MODES.FALLBACK, typed: "X", chosen: "Other Co", options, prediction: { index: -1 } }, date);
+    expect(record.chosenIndex).toBe(-1);
+    expect(record.chosenInList).toBe(false);
+    expect(record.predictionCorrect).toBe(true); // both "none of the options"
   });
 
-  test("company id is null when unknown", () => {
-    expect(createMatchRecord({ typed: "A", chosen: "A", options: [] }, date).companyId).toBeNull();
+  test("auto record: no ground truth, no pick time", () => {
+    const record = createMatchRecord(
+      { mode: MATCH_MODES.AUTO, typed: "Ecreo", chosen: "Ecreo", options, prediction: { index: 0 }, pickMs: 10 },
+      date
+    );
+    expect(record.predictionCorrect).toBeNull();
+    expect(record.pickMs).toBeNull();
+    expect(record.chosenIndex).toBe(0);
+    expect(record.companyId).toBeNull();
   });
 });
 

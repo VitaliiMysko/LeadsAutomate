@@ -2,7 +2,8 @@ import { FILTER_TYPES, SELECTION_TYPES, getFilterTexts, getFilterValues, urlWith
 import { chooseCompanyOption } from "../../utils/company-match.js";
 import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
 import { logoDistance, logoSimilarity } from "../../utils/image-hash.js";
-import { MATCH_KINDS, companyIdFromUrn } from "../../utils/match-records.js";
+import { MATCH_KINDS, MATCH_MODES, companyIdFromUrn } from "../../utils/match-records.js";
+import { nameFeatures } from "../../utils/name-features.js";
 import { TIMING, LOGO_THRESHOLDS } from "../../constants/config.js";
 import { formatDuration } from "../../utils/text-utils.js";
 import { hashRemoteLogo } from "./logo-service.js";
@@ -195,14 +196,15 @@ const LOGO_VERDICT_LOG = {
   [LOGO_VERDICTS.CHOSEN_BY_LOGO]: ["success", "chosen by logo"],
 };
 
-// Compares the companies file's logo with each dropdown option's logo and
-// lets logo-match.js confirm, change or drop the name-based choice. Options
-// without a logo (or whose image can't be read) don't take part.
-async function checkLogos(choice, options, logos, fileLogo, log) {
+// Logo distance of each dropdown option to the companies file's logo (null
+// for an option without a readable logo), or null when there's nothing to
+// compare.
+async function logoDistances(options, logos, fileLogo, log) {
+  if (!fileLogo?.hash || !options.length) return null;
   const urls = logos ?? [];
   if (!urls.some(Boolean)) {
     log.debug("Logo check skipped: no option in the dropdown shows a logo");
-    return choice;
+    return null;
   }
   const hashes = await Promise.all(urls.map((url) => (url ? hashRemoteLogo(url) : null)));
   const distances = hashes.map((hash) => (hash ? logoDistance(fileLogo.hash, hash) : null));
@@ -212,16 +214,56 @@ async function checkLogos(choice, options, logos, fileLogo, log) {
         .map((label, i) => `#${i + 1} "${label}" ${distances[i] === null ? (urls[i] ? "unreadable" : "no logo") : `${logoSimilarity(distances[i])}% (distance ${distances[i]})`}`)
         .join(", ")
   );
+  return distances;
+}
 
-  const checked = applyLogoCheck(choice, distances, LOGO_THRESHOLDS);
+// Lets logo-match.js confirm, change or drop the name-based choice.
+function checkLogos(nameChoice, distances, log) {
+  const checked = applyLogoCheck(nameChoice, distances, LOGO_THRESHOLDS);
   const verdict = checked.logo?.verdict;
   if (verdict) {
     const [level, text] = LOGO_VERDICT_LOG[verdict];
     log[level](`Logo check: ${text} (similarity ${logoSimilarity(checked.logo.distance)}%)`);
-  } else if (checked.index === -1 && choice.index !== -1) {
+  } else if (checked.index === -1 && nameChoice.index !== -1) {
     log.warn(`Logo check: ${checked.reason}`);
   }
   return checked;
+}
+
+// Per-option data for the match records.
+function describeOptions(typed, options, details, logos, distances) {
+  return options.map((label, index) => {
+    const distance = distances?.[index] ?? null;
+    return {
+      index,
+      label,
+      text: details?.[index]?.text ?? label,
+      logo: details?.[index]?.logo ?? (logos?.[index] ? "logo" : "none"),
+      logoDistance: distance,
+      logoSimilarity: distance === null ? null : logoSimilarity(distance),
+      highlighted: details?.[index]?.highlighted ?? false,
+      name: nameFeatures(typed, label),
+    };
+  });
+}
+
+// What the rules chose (or, in labeling mode, would have chosen).
+function describePrediction(choice, nameChoice, options) {
+  return {
+    index: choice.index,
+    label: options[choice.index] ?? null,
+    rule: choice.rule ?? null,
+    reason: choice.reason ?? null,
+    nameIndex: nameChoice.index,
+    nameRule: nameChoice.rule ?? null,
+    logo: choice.logo ?? null,
+  };
+}
+
+function predictionText(prediction) {
+  return prediction.index === -1
+    ? `nothing (${prediction.reason})`
+    : `#${prediction.index + 1} "${prediction.label}" (${prediction.rule})`;
 }
 
 async function waitForResults(tabId, log) {
@@ -241,17 +283,24 @@ async function waitForResults(tabId, log) {
 //   their pick (read from the URL) is recorded as a manual match;
 // - otherwise the dropdown is closed and the company reported unresolved.
 //
+// `labeling`: the rules' choice is only predicted and logged, never applied;
+// the user always picks, and the record keeps both for analysis.
+//
 // `fileLogo` ({ hash }) is the company's logo from the companies CSV: when
-// given, the choice is also checked against the dropdown's logos.
+// given, the choice is also checked against the dropdown's logos. `csv`
+// ({ website, country, hasLogo }) goes into the match record.
 //
 // Returns { outcome: "already" | "auto" | "manual" | "unresolved", chosen,
 // rule, reason, logo, count }. Throws FatalError when a batch run can't go on.
-export async function searchCompany(name, { log, fileLogo = null, waitForManualChoice = false, onManualWait, shouldStop }) {
+export async function searchCompany(
+  name,
+  { log, fileLogo = null, csv = null, labeling = false, waitForManualChoice = false, onManualWait, shouldStop }
+) {
   const tab = await getSearchTab();
   await sendToContent(tab.id, "ping");
 
   const current = allCompanies(tab.url);
-  if (current.length === 1 && includedCompanies(tab.url)[0] === name) {
+  if (!labeling && current.length === 1 && includedCompanies(tab.url)[0] === name) {
     log.info(`"${name}" is already the only Current company filter value`);
     return { outcome: "already", chosen: name, count: await waitForResults(tab.id, log) };
   }
@@ -261,44 +310,52 @@ export async function searchCompany(name, { log, fileLogo = null, waitForManualC
   }
 
   log.info(`Typing "${name}" into Current company`);
-  const { options, logos } = await sendToContent(tab.id, "typeFilterValue", { filterType: COMPANY, text: name });
+  const { options, logos, details } = await sendToContent(tab.id, "typeFilterValue", { filterType: COMPANY, text: name });
   log.debug(options.length ? `Dropdown (${options.length}): ${options.join(" | ")}` : "Dropdown is empty");
 
-  let choice = chooseCompanyOption(name, options);
-  if (fileLogo?.hash && options.length) choice = await checkLogos(choice, options, logos, fileLogo, log);
+  const nameChoice = chooseCompanyOption(name, options);
+  const distances = await logoDistances(options, logos, fileLogo, log);
+  const choice = distances ? checkLogos(nameChoice, distances, log) : nameChoice;
 
-  if (choice.index !== -1) {
+  const recordBase = {
+    typed: name,
+    csv,
+    prediction: describePrediction(choice, nameChoice, options),
+    options: describeOptions(name, options, details, logos, distances),
+  };
+  const logoOf = (index) => ({
+    url: logos?.[index] ?? null,
+    ...(distances?.[index] !== null && distances?.[index] !== undefined ? { distance: distances[index] } : {}),
+  });
+
+  if (!labeling && choice.index !== -1) {
     const label = options[choice.index];
     log.info(`Auto-choosing "${label}" (option ${choice.index + 1} of ${options.length}) for "${name}": ${choice.description}`);
     const url = await selectOption(tab.id, choice.index, label, log);
     log.success(`Auto-selected "${label}" for "${name}": ${choice.description}`);
 
     const companyId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
-    await saveRecord(
-      MATCH_KINDS.AUTO,
-      { typed: name, chosen: label, companyId, rule: choice.rule, options, logo: choice.logo },
-      log
-    );
-    return {
-      outcome: "auto",
-      chosen: label,
-      rule: choice.rule,
-      logo: { url: logos[choice.index] ?? null, ...choice.logo },
-      count: await waitForResults(tab.id, log),
-    };
+    const count = await waitForResults(tab.id, log);
+    await saveRecord(MATCH_KINDS.AUTO, { ...recordBase, mode: MATCH_MODES.AUTO, chosen: label, companyId, leads: count }, log);
+    return { outcome: "auto", chosen: label, rule: choice.rule, logo: { ...logoOf(choice.index), ...choice.logo }, count };
   }
 
-  log.warn(`No automatic choice for "${name}": ${choice.reason}`);
+  if (labeling) {
+    log.info(`Labeling: the rules would choose ${predictionText(recordBase.prediction)}`);
+  } else {
+    log.warn(`No automatic choice for "${name}": ${choice.reason}`);
+  }
   const unresolved = async (reason) => {
     await sendToContent(tab.id, "dismissSuggestions", { filterType: COMPANY }).catch(() => {});
     return { outcome: "unresolved", reason };
   };
 
-  if (!waitForManualChoice) return unresolved(choice.reason);
+  if (!labeling && !waitForManualChoice) return unresolved(choice.reason);
 
   const timeout = TIMING.manualChoiceTimeoutMs;
   log.info(`Pick the company in the Sales Navigator dropdown (waiting up to ${formatDuration(timeout)}; Stop cancels)`);
   onManualWait?.();
+  const waitStartedAt = Date.now();
 
   let url;
   try {
@@ -313,11 +370,34 @@ export async function searchCompany(name, { log, fileLogo = null, waitForManualC
     if (error instanceof WaitTimeoutError) return unresolved(`no manual choice within ${formatDuration(timeout)}`);
     throw error;
   }
+  const pickMs = Date.now() - waitStartedAt;
 
   const picked = getFilterValues(url, COMPANY);
   const chosen = picked.map((value) => value.text).join(", ");
   const companyId = picked.map((value) => companyIdFromUrn(value.id)).filter(Boolean).join(", ") || null;
+  const chosenIndex = options.indexOf(chosen);
   log.success(`Manually selected "${chosen}" for "${name}"`);
-  await saveRecord(MATCH_KINDS.MANUAL, { typed: name, chosen, companyId, reason: choice.reason, options }, log);
-  return { outcome: "manual", chosen, count: await waitForResults(tab.id, log) };
+  if (labeling) {
+    const agreed = recordBase.prediction.index === chosenIndex;
+    log[agreed ? "success" : "warn"](
+      `Labeling: you picked ${chosenIndex === -1 ? "a company not in the dropdown" : `#${chosenIndex + 1}`}; ` +
+        `the rules ${agreed ? "agree" : `would have chosen ${predictionText(recordBase.prediction)}`}`
+    );
+  }
+
+  const count = await waitForResults(tab.id, log);
+  await saveRecord(
+    MATCH_KINDS.MANUAL,
+    {
+      ...recordBase,
+      mode: labeling ? MATCH_MODES.LABELING : MATCH_MODES.FALLBACK,
+      chosen,
+      companyId,
+      leads: count,
+      pickMs,
+    },
+    log
+  );
+  const pickedLogo = chosenIndex === -1 ? {} : logoOf(chosenIndex);
+  return { outcome: "manual", chosen, logo: { ...pickedLogo, verdict: "picked by hand" }, count };
 }

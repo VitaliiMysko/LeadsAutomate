@@ -37,6 +37,7 @@ export const STORAGE_KEYS = {
   companyName: "companyName",
   companyQueue: "companyQueue",
   companyLogos: "companyLogos",
+  labelingMode: "labelingMode",
   logLevels: "logLevels",
   jobSectionOpen: "jobSectionOpen",
   unresolvedCompanies: "unresolvedCompanies",

@@ -25,24 +25,24 @@ describe("parseCsv", () => {
 
 describe("parseCompaniesCsv", () => {
   const csv =
-    "title,company_name,Logo,website\n" +
-    'x,"Acme, Inc.",C:\\logos\\acme.png,acme.com\n' +
-    "x,  Beta  Ltd ,,beta.com\n" +
-    "x,acme inc.,C:\\logos\\other.png,\n" +
-    "x,,C:\\logos\\none.png,\n";
+    "title,company_name,Logo,website,Country\n" +
+    'x,"Acme, Inc.",C:\\logos\\acme.png,acme.com,Austria\n' +
+    "x,  Beta  Ltd ,,beta.com,\n" +
+    "x,acme inc.,C:\\logos\\other.png,,\n" +
+    "x,,C:\\logos\\none.png,,\n";
 
-  test("reads company_name and logo by header name, any column order and case", () => {
+  test("reads company_name, logo, website and country by header name, any column order and case", () => {
     expect(parseCompaniesCsv(csv)).toEqual([
-      { name: "Acme, Inc.", logoPath: "C:\\logos\\acme.png" },
-      { name: "Beta Ltd", logoPath: null },
-      { name: "acme inc.", logoPath: "C:\\logos\\other.png" },
+      { name: "Acme, Inc.", logoPath: "C:\\logos\\acme.png", website: "acme.com", country: "Austria" },
+      { name: "Beta Ltd", logoPath: null, website: "beta.com", country: null },
+      { name: "acme inc.", logoPath: "C:\\logos\\other.png", website: null, country: null },
     ]);
   });
 
-  test("logo column is optional", () => {
+  test("logo, website and country columns are optional", () => {
     expect(parseCompaniesCsv("company_name\nAcme\nBeta")).toEqual([
-      { name: "Acme", logoPath: null },
-      { name: "Beta", logoPath: null },
+      { name: "Acme", logoPath: null, website: null, country: null },
+      { name: "Beta", logoPath: null, website: null, country: null },
     ]);
   });
 
@@ -54,7 +54,9 @@ describe("parseCompaniesCsv", () => {
 
 describe("parseCompaniesFile", () => {
   test("CSV with company_name", () => {
-    expect(parseCompaniesFile("company_name,logo\nAcme,a.png")).toEqual([{ name: "Acme", logoPath: "a.png" }]);
+    expect(parseCompaniesFile("company_name,logo\nAcme,a.png")).toEqual([
+      { name: "Acme", logoPath: "a.png", website: null, country: null },
+    ]);
   });
 
   test("plain comma-separated list otherwise", () => {

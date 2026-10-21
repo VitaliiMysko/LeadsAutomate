@@ -740,6 +740,45 @@ input[readonly] {
   color: var(--text-muted);
 }
 
+/* ---- manual labeling / records ----------------------------------------- */
+
+.labeling-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.toggle:has(input:disabled) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.record-counts {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- needs manual choice ---------------------------------------------- */
 
 .unresolved {

@@ -2,7 +2,7 @@
 
 Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. It is meant to work alongside the [Lead generator](../LeadGenerator) extension; that integration isn't implemented yet.
 
-## Features (v0.4)
+## Features (v0.5)
 
 The panel shows these sections, top to bottom:
 1. status area;
@@ -29,7 +29,7 @@ The panel shows these sections, top to bottom:
   - **Manual choice**: when no rule applies, **Search**, **Search next** and the list's **Search** leave the dropdown open and wait up to 5 min for you to pick the company in Sales Navigator. **Stop** cancels the wait. A cancelled or timed-out wait puts the company on the *Needs manual choice* list.
 - **Companies file**: one of two formats. Duplicates and empty entries are skipped.
   - A text file with company names separated by commas (line breaks also work).
-  - A CSV with a header row: the company names in a `company_name` column, and optionally a `logo` column with the path of the company's logo image on this computer. Columns may be in any order, separated by `,` or `;`.
+  - A CSV with a header row: the company names in a `company_name` column, and optionally a `logo` column with the path of the company's logo image on this computer, plus `website` and `country` columns, which are kept in the match records. Columns may be in any order, separated by `,` or `;`.
   - **Logos**: when the CSV has logos, click **Choose logos folder** and pick the folder that holds them. The files are matched to the companies by file name. The extension keeps each logo's fingerprint (a perceptual hash) and a thumbnail, so you only need to pick the folder again after loading a new CSV.
   - **Search next**: searches the next company in the list.
   - **Search all**: searches the remaining companies one by one, with a random pause of 6–12 s between them. It never waits for you: a company that can't be chosen automatically goes to the *Needs manual choice* list and the run continues. At the end, the status area and the log report how many companies need a manual choice, and which ones. **Stop** ends the run after the current company. **↺** restarts the list from the beginning.
@@ -42,7 +42,19 @@ The panel shows these sections, top to bottom:
   - When the choice came from a weaker rule (the only option, or a match ignoring the legal form), a clearly different logo hands the choice to the one option whose logo matches. If no option matches, the company goes to *Needs manual choice*.
   - When the name rules can't choose, an option is chosen if its logo alone clearly matches.
   - The thresholds are in `LOGO_THRESHOLDS` (`src/constants/config.js`). They were set on the 170 Umbraco partner logos compared with small JPEG copies: the same logo is within 10 in about 75% of cases, and different logos are 20 or more apart in about 99.8% of cases.
-- **Match records** (internal, not shown in the UI and never written to disk): every company choice is stored inside the extension, automatic choices under `auto`, manual ones under `manual`. A record holds `time`, `typed` (the name searched for), `chosen` (the company applied), `companyId` (the chosen company's LinkedIn id, e.g. `2781504` from `urn:li:organization:2781504`), `rule` (auto) or `reason` (why the automatic choice failed, manual), `options` (all names in the dropdown) and, when a logo was compared, `logo` (verdict and distance). They're kept to tune the automatic choice later. Only the last 5000 records of each kind are kept. The records carry a format version: when the panel starts and finds records of an older format, it removes them and logs how many it removed.
+- **Manual labeling** (toggle in the Companies file card): for building a labelled set. Every search types the name and waits for your pick in the dropdown; nothing is selected automatically. What the rules would have chosen is only predicted. The log shows the prediction and whether you agreed with it, and the record keeps both. **Search all** is unavailable in this mode, so go through the file with **Search next**. Choose the logos folder first, so the records include the logo comparisons.
+- **Match records** (internal, never written to disk on their own): every company choice is stored inside the extension. Automatic choices go under `auto`; picks made by hand go under `manual`, as `mode` `fallback` (the rules couldn't choose) or `labeling`. **Export** downloads all records as a JSON file; the card shows how many there are. A record holds:
+  - `typed`, `chosen`, `companyId` (the chosen company's LinkedIn id, e.g. `2781504` from `urn:li:organization:2781504`), `chosenIndex` / `chosenInList` (position of the chosen company in the dropdown, `-1` if you picked something else);
+  - `prediction`: what the rules chose or would have chosen (`index`, `label`, `rule` or `reason`, the name rule's own pick `nameIndex` / `nameRule`, and the logo verdict). `predictionCorrect` says whether it matched your pick (manual records only);
+  - `options`, one entry per dropdown option:
+    - `label` and full `text` (detail lines such as the industry);
+    - `logo`: `logo` / `ghost` / `none`;
+    - `logoDistance` / `logoSimilarity` against the CSV logo;
+    - `highlighted`: whether the list opened with this option highlighted;
+    - `name` features: exact, ignoring case, ignoring the legal form, starts with, contains, word overlap, edit similarity;
+  - `csv` (`website`, `country`, `hasLogo` from the companies file), `leads` (leads on the page after the choice) and `pickMs` (how long a manual pick took).
+
+  Only the last 5000 records of each kind are kept. The records carry a format version: when the panel starts and finds records of an older format, it removes them and logs how many it removed.
 - **Status area**: shows the current operation, how long it has been running, and its outcome or total time.
 - **Log**: a scrollable list with time-stamped `DEBUG` / `INFO` / `OK` / `WARN` / `ERROR` entries, with Copy (copies the visible entries) and Clear buttons. Lines marked `[page]` come from the script running on the LinkedIn page.
   - **Quick filters**: one toggle per marker with its entry count. Click a toggle to show or hide that marker, double-click it to show only that marker, or click **All** to show everything. The selection is remembered.
