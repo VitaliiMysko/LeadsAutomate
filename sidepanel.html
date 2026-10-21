@@ -39,6 +39,10 @@
             </label>
           </div>
           <ol id="management-list" class="rank-list drop-zone" aria-label="Management job titles by priority"></ol>
+          <form id="management-add" class="add-title" autocomplete="off">
+            <input type="text" placeholder="Add job title" aria-label="Add a Management job title" />
+            <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
+          </form>
         </div>
         <div class="column">
           <div class="column__head">
@@ -49,6 +53,10 @@
             </label>
           </div>
           <ol id="technical-list" class="rank-list drop-zone" aria-label="Technical job titles by priority"></ol>
+          <form id="technical-add" class="add-title" autocomplete="off">
+            <input type="text" placeholder="Add job title" aria-label="Add a Technical job title" />
+            <button type="submit" class="add-title__btn" title="Add" aria-label="Add">+</button>
+          </form>
         </div>
       </section>
     </div>
@@ -86,16 +94,11 @@
       <div class="card__head">
         <h2>Log</h2>
         <div class="log-tools">
-          <select id="log-level-filter" aria-label="Log level filter">
-            <option value="all">All</option>
-            <option value="info">Info+</option>
-            <option value="warn">Warn+</option>
-            <option value="error">Errors</option>
-          </select>
           <button type="button" id="log-copy-btn" class="btn btn--secondary btn--small">Copy</button>
           <button type="button" id="log-clear-btn" class="btn btn--secondary btn--small">Clear</button>
         </div>
       </div>
+      <div id="log-filters" class="log-filters" role="group" aria-label="Log marker filters"></div>
       <div id="log" class="log" role="log" aria-live="off"></div>
     </section>
   </body>
