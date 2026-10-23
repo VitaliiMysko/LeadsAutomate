@@ -1,30 +1,27 @@
-import { MATCH_RULES } from "./company-match.js";
-
-// Checks a name-based company choice (company-match.js) against logos:
-// the logo from the companies CSV vs. each dropdown option's logo, given as
-// logo distances (image-hash.js logoDistance), null where an option has no
-// usable logo. Only applies when there's something to compare.
+// Combines a name-based company choice (company-match.js) with logos: the
+// logo from the companies CSV vs. each dropdown option's logo, given as logo
+// distances (image-hash.js logoDistance), null where an option has no usable
+// logo. Only applies when there's something to compare.
 //
-// - The chosen option's logo matches: the choice is confirmed.
-// - Unclear distance: the choice stands, flagged unsure.
-// - Clearly different logo:
-//   - a choice by exact name stands, flagged (a company's LinkedIn logo
-//     can differ from the file's, so it doesn't outweigh an exact name);
-//   - a weaker choice (only option, legal form) gives way to the option
-//     whose logo matches, if exactly one does; otherwise nothing is chosen
-//     (left for a manual choice).
-// - Nothing chosen by name: an option is chosen if its logo alone matches.
+// In labelled choices (match records), a logo helped only where the name
+// rules couldn't choose: there, the one option whose logo clearly matched
+// was right every time (7 of 7), while overriding a name choice was right
+// once in 4 (same-name duplicates often share a logo). A distant logo meant
+// nothing: the file's logo differed from the LinkedIn one for about two
+// thirds of the right companies. So:
+//
+// - Name rules chose: the choice stands; the logo only confirms it or is
+//   noted as not confirming it.
+// - Name rules couldn't choose: the one option whose logo clearly matches is
+//   chosen, unless its name doesn't resemble the typed one at all
+//   (`eligible[i]` false; LinkedIn's suggestions when it finds nothing).
 
 export const LOGO_RULE = "logo";
 export const LOGO_RULE_DESCRIPTION = "the only option whose logo matches the file's logo";
 
-const EXACT_NAME_RULES = new Set([MATCH_RULES.EXACT, MATCH_RULES.EXACT_IGNORE_CASE]);
-
 export const LOGO_VERDICTS = {
   CONFIRMED: "confirmed",
-  UNSURE: "unsure",
-  DIFFERENT_KEPT: "different-kept",
-  OVERRIDDEN: "overridden",
+  NOT_CONFIRMED: "not-confirmed",
   CHOSEN_BY_LOGO: "chosen-by-logo",
 };
 
@@ -43,13 +40,12 @@ export function uniqueLogoMatch(distances, { matchMaxDistance, margin }) {
   return best.index;
 }
 
-export function applyLogoCheck(nameChoice, distances, thresholds) {
+export function applyLogoCheck(nameChoice, distances, thresholds, eligible = []) {
   if (!distances.some(present)) return nameChoice;
 
-  const logoIndex = uniqueLogoMatch(distances, thresholds);
-
   if (nameChoice.index === -1) {
-    if (logoIndex === -1) return nameChoice;
+    const logoIndex = uniqueLogoMatch(distances, thresholds);
+    if (logoIndex === -1 || eligible[logoIndex] === false) return nameChoice;
     return {
       index: logoIndex,
       rule: LOGO_RULE,
@@ -60,27 +56,6 @@ export function applyLogoCheck(nameChoice, distances, thresholds) {
 
   const distance = distances[nameChoice.index];
   if (!present(distance)) return nameChoice; // that option shows no logo
-
-  if (distance <= thresholds.matchMaxDistance) {
-    return { ...nameChoice, logo: { verdict: LOGO_VERDICTS.CONFIRMED, distance } };
-  }
-  if (distance < thresholds.mismatchMinDistance) {
-    return { ...nameChoice, logo: { verdict: LOGO_VERDICTS.UNSURE, distance } };
-  }
-  if (EXACT_NAME_RULES.has(nameChoice.rule)) {
-    return { ...nameChoice, logo: { verdict: LOGO_VERDICTS.DIFFERENT_KEPT, distance } };
-  }
-  if (logoIndex !== -1 && logoIndex !== nameChoice.index) {
-    return {
-      index: logoIndex,
-      rule: LOGO_RULE,
-      description: `${LOGO_RULE_DESCRIPTION} (option #${nameChoice.index + 1}, ${nameChoice.description}, has a different logo)`,
-      logo: { verdict: LOGO_VERDICTS.OVERRIDDEN, distance: distances[logoIndex], rejectedDistance: distance },
-    };
-  }
-  return {
-    index: -1,
-    reason: `option #${nameChoice.index + 1} (${nameChoice.description}) has a different logo than the file's`,
-    logo: { rejectedDistance: distance },
-  };
+  const verdict = distance <= thresholds.matchMaxDistance ? LOGO_VERDICTS.CONFIRMED : LOGO_VERDICTS.NOT_CONFIRMED;
+  return { ...nameChoice, logo: { verdict, distance } };
 }

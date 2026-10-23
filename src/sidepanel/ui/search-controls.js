@@ -4,6 +4,7 @@ import { formatDuration, randomBetween, isSameName } from "../../utils/text-util
 import { logoSimilarity } from "../../utils/image-hash.js";
 import { searchCompany } from "../services/search-runner.js";
 import { loadCompanyLogos } from "../services/logo-service.js";
+import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords } from "../services/match-recorder.js";
 import { FatalError } from "../services/tab-service.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
@@ -24,6 +25,9 @@ import { status } from "./status.js";
 let elements = null;
 let queue = { fileName: "", companies: [], index: 0 }; // companies: [{ name, logoPath }]
 let logos = {}; // company name → { hash, thumb }
+// Manual labeling: every search waits for the user's pick; the rules'
+// choice is only predicted and recorded next to it.
+let labeling = false;
 let unresolved = []; // [{ name, reason }]
 let busy = false;
 let batchRunning = false;
@@ -42,6 +46,18 @@ function persistLogos() {
 // the manual choice list), for its logo.
 function findCompany(name) {
   return queue.companies.find((company) => isSameName(company.name, name)) ?? null;
+}
+
+// CSV data recorded with each match.
+function csvFor(name) {
+  const company = findCompany(name);
+  if (!company) return null;
+  return { website: company.website ?? null, country: company.country ?? null, hasLogo: !!company.logoPath };
+}
+
+async function renderRecordCounts() {
+  const counts = await matchRecordCounts().catch(() => null);
+  if (counts) elements.recordCounts.textContent = `Records: ${counts.auto} auto · ${counts.manual} manual`;
 }
 
 function logoFor(name) {
@@ -140,7 +156,10 @@ function updateControls() {
   elements.companyName.readOnly = busy;
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
-  elements.searchAllButton.disabled = busy || !hasNext;
+  elements.searchAllButton.disabled = busy || !hasNext || labeling;
+  elements.searchAllButton.title = labeling ? "Not available in manual labeling: use Search next" : "";
+  elements.labelingToggle.checked = labeling;
+  elements.labelingToggle.disabled = busy;
   elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
   elements.resetQueueButton.disabled = busy || queue.index === 0;
   elements.fileInput.disabled = busy;
@@ -181,6 +200,8 @@ async function runOne(name, { interactive }) {
     const result = await searchCompany(name, {
       log,
       fileLogo,
+      csv: csvFor(name),
+      labeling,
       waitForManualChoice: interactive,
       shouldStop: () => stopRequested,
       onManualWait: () => {
@@ -427,6 +448,26 @@ async function handleLogoFolder() {
   });
 }
 
+async function handleExportRecords() {
+  try {
+    const counts = await downloadMatchRecords();
+    log.info(`Exported match records: ${counts.auto} auto, ${counts.manual} manual`);
+  } catch (error) {
+    log.error(`Could not export match records: ${error.message}`);
+  }
+}
+
+function handleLabelingToggle() {
+  labeling = elements.labelingToggle.checked;
+  saveValue(STORAGE_KEYS.labelingMode, labeling);
+  log.info(
+    labeling
+      ? "Manual labeling on: every search waits for your pick; the rules' choice is only predicted and recorded"
+      : "Manual labeling off"
+  );
+  updateControls();
+}
+
 function handleClearUnresolved() {
   if (busy || !unresolved.length) return;
   log.info(`Manual choice list cleared (${unresolved.length} companies)`);
@@ -444,13 +485,19 @@ export async function initSearchControls(controlElements) {
     const companies = storedQueue.companies
       .map((entry) => (typeof entry === "string" ? { name: entry, logoPath: null } : entry))
       .filter((entry) => typeof entry?.name === "string")
-      .map(({ name, logoPath }) => ({ name, logoPath: typeof logoPath === "string" ? logoPath : null }));
+      .map(({ name, logoPath, website, country }) => ({
+        name,
+        logoPath: typeof logoPath === "string" ? logoPath : null,
+        website: typeof website === "string" ? website : null,
+        country: typeof country === "string" ? country : null,
+      }));
     queue = {
       fileName: String(storedQueue.fileName ?? ""),
       companies,
       index: Math.min(Math.max(Number(storedQueue.index) || 0, 0), companies.length),
     };
   }
+  labeling = (await loadValue(STORAGE_KEYS.labelingMode, false)) === true;
   const storedLogos = await loadValue(STORAGE_KEYS.companyLogos, {});
   logos = storedLogos && typeof storedLogos === "object" ? storedLogos : {};
   const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
@@ -471,6 +518,10 @@ export async function initSearchControls(controlElements) {
   elements.resetQueueButton.addEventListener("click", handleResetQueue);
   elements.fileInput.addEventListener("change", handleFile);
   elements.logoFolderInput.addEventListener("change", handleLogoFolder);
+  elements.labelingToggle.addEventListener("change", handleLabelingToggle);
+  elements.exportRecordsButton.addEventListener("click", handleExportRecords);
+  subscribeMatchRecords(renderRecordCounts);
+  renderRecordCounts();
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
 
   updateControls();

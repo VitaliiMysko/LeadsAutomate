@@ -144,11 +144,32 @@ if (!window.leadsAutomate.salesSearchInit) {
   // (lazy loading), an inline placeholder, or LinkedIn's "ghost" image for
   // companies without a logo.
   function optionLogo(option) {
+    return optionLogoState(option) === "logo" ? logoSource(option) : null;
+  }
+
+  function logoSource(option) {
     const image = queryFirst(option, SELECTORS.optionLogo);
-    const src = image?.currentSrc || image?.src || "";
-    if (!/^https:\/\//.test(src)) return null;
-    if (/ghost/i.test(src) || /ghost/i.test(image.className || "")) return null;
-    return src;
+    return image?.currentSrc || image?.src || "";
+  }
+
+  // "logo", "ghost" (LinkedIn's placeholder) or "none", for the records.
+  function optionLogoState(option) {
+    const image = queryFirst(option, SELECTORS.optionLogo);
+    const src = logoSource(option);
+    if (!image || !/^https:\/\//.test(src)) return "none";
+    if (/ghost/i.test(src) || /ghost/i.test(image.className || "")) return "ghost";
+    return "logo";
+  }
+
+  // All of the option's text lines (name, then details such as industry),
+  // without its buttons' labels (Include / Exclude).
+  function optionText(option) {
+    const buttonLabels = new Set([...option.querySelectorAll("button")].map((button) => (button.innerText || "").trim()));
+    return (option.innerText || option.textContent || "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !buttonLabels.has(line))
+      .join(" | ");
   }
 
   function getFilterInput(fieldset) {
@@ -181,7 +202,17 @@ if (!window.leadsAutomate.salesSearchInit) {
     // Let late suggestions finish rendering before reading the list.
     if (options.length) await humanDelay(600, 1000);
     const current = getSuggestionOptions(input, fieldset);
-    return { options: current.map(optionLabel), logos: current.map(optionLogo) };
+    const { highlighted } = highlightState(current);
+    return {
+      options: current.map(optionLabel),
+      logos: current.map(optionLogo),
+      // Per option, for the match records.
+      details: current.map((option, index) => ({
+        text: optionText(option),
+        logo: optionLogoState(option),
+        highlighted: index === highlighted,
+      })),
+    };
   }
 
   const HIGHLIGHT_CLASS = /(active|hover|focus|highlight|selected|current)/i;

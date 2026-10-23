@@ -38,6 +38,16 @@ export async function clearOutdatedMatchRecords() {
 
 // Writes are serialized so two quick records can't overwrite each other.
 let writeChain = Promise.resolve();
+const listeners = new Set();
+
+export function subscribeMatchRecords(listener) {
+  listeners.add(listener);
+}
+
+export async function matchRecordCounts() {
+  const records = await loadMatchRecords();
+  return Object.fromEntries(Object.values(MATCH_KINDS).map((kind) => [kind, records[kind].length]));
+}
 
 export function recordMatch(kind, fields) {
   const run = writeChain.then(async () => {
@@ -47,5 +57,20 @@ export function recordMatch(kind, fields) {
     return records[kind].length;
   });
   writeChain = run.catch(() => {});
+  run.then(() => listeners.forEach((listener) => listener())).catch(() => {});
   return run;
+}
+
+// Saves all records as a JSON file through the browser's download, on the
+// user's request (the extension never writes files on its own).
+export async function downloadMatchRecords() {
+  const records = await loadMatchRecords();
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `company-match-records-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return Object.fromEntries(Object.values(MATCH_KINDS).map((kind) => [kind, records[kind].length]));
 }

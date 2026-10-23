@@ -13,18 +13,23 @@ export const TIMING = {
   // How long a single search waits for the user to pick a company by hand
   // when it can't be chosen automatically.
   manualChoiceTimeoutMs: 5 * 60 * 1000,
+  // Random pause before typing a shorter name when the first had no match.
+  betweenRetypesMs: [1500, 3500],
 };
+
+// How many shorter names (name-variants.js) a search may try after the name
+// from the file, when no dropdown option has that name.
+export const SHORTER_NAME_ATTEMPTS = 2;
 
 // Logo distances (logoDistance: 0..32 differing hash bits) between the
 // companies file's logo and a dropdown option's logo. Set from the 170
 // Umbraco partner logos vs. LinkedIn-like copies (small, JPEG): same logo
-// ≤10 in ~75% of cases, ≥20 in ~8%; different logos ≥20 in ~99.8%.
-// Tune them from the distances the log reports.
+// ≤10 in ~75% of cases; different logos ≥20 in ~99.8%. Checked on 251
+// labelled choices: a unique match chose the right company in 38 of 41.
+// Tune them from the distances the log and the match records report.
 export const LOGO_THRESHOLDS = {
   // At most this far: same logo.
   matchMaxDistance: 10,
-  // At least this far: a different logo.
-  mismatchMinDistance: 20,
   // The closest option must be this much closer than the next one to win.
   margin: 6,
 };
@@ -37,6 +42,7 @@ export const STORAGE_KEYS = {
   companyName: "companyName",
   companyQueue: "companyQueue",
   companyLogos: "companyLogos",
+  labelingMode: "labelingMode",
   logLevels: "logLevels",
   jobSectionOpen: "jobSectionOpen",
   unresolvedCompanies: "unresolvedCompanies",

@@ -84,6 +84,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     currentFoundLogo: $("current-found-logo"),
     currentLogoName: $("current-logo-name"),
     currentLogoVerdict: $("current-logo-verdict"),
+    labelingToggle: $("labeling-toggle"),
+    recordCounts: $("record-counts"),
+    exportRecordsButton: $("export-records-btn"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
@@ -92,7 +95,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.tabs.onActivated.addListener(refreshJobTitles);
 
   const dropped = await clearOutdatedMatchRecords();
-  if (dropped) log.info(`Cleared ${dropped} match records of the old format (without companyId)`);
+  if (dropped) log.info(`Cleared ${dropped} match records of an older format`);
 
   log.info("Side panel ready");
   await refreshJobTitles();
