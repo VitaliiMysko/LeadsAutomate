@@ -19,13 +19,22 @@ The panel shows these sections, top to bottom:
   - Old values are removed without reloading the page. The extension switches the page to the same search URL without the company filter, the way Back / Forward does, and Sales Navigator updates the filters (about 0.2 s). Script-generated clicks on the remove buttons have no effect. If the page doesn't follow, the search URL is reloaded without the filter, and a `DEBUG` snapshot of the selected value goes to the log.
   - The dropdown option is selected with the keyboard, because Sales Navigator ignores script-generated clicks and hovering. The arrow keys start from the option Sales Navigator highlights when the list opens, so the extension presses ↑ or ↓ toward the chosen option, then Enter. If the chosen option is already highlighted, it steps one option away and back, because Enter on that initial highlight adds the typed text as free text instead of the company.
   - The applied value in the URL must be the chosen option and carry a LinkedIn company id. A different company or free text is logged as an error, removed, and the search counts as failed. A wrong company never stays applied.
-  - **Automatic choice**. The rules are tried in this order, and a rule applies only when exactly one option matches it:
-    1. an exact match, case-sensitive;
-    2. an exact match ignoring case;
-    3. the dropdown has only one option;
-    4. a match ignoring the legal form, e.g. *Acme* ↔ *Acme GmbH* or *Acme, Inc.* ↔ *Acme LLC*.
+  - **Automatic choice**. Options "with the same name" match the typed name ignoring case, legal form, punctuation and spaces, e.g. *Acme* ↔ *ACME GmbH*, *Factory 73 Ltd* ↔ *Factory73*. The rules are tried in this order:
+    1. nothing is chosen when the dropdown is empty or no option resembles the name (no word starting with the name's first word); that's what LinkedIn shows when it finds nothing;
+    2. the first option, when it has the same name. If it differs from the typed name only in case and a lower option matches exactly (case-sensitive), that lower option;
+    3. nothing is chosen when the first option with the same name isn't the first in the list: in labelled choices such options were right only about half the time;
+    4. the dropdown's only option;
+    5. otherwise, by logo (see *Logo check*).
 
-    The log names the rule that chose the company, or the reason no company could be chosen.
+    When no option has the same name and none is chosen by logo, the extension types a shorter name, up to 2 times (`SHORTER_NAME_ATTEMPTS` in `src/constants/config.js`), after a random 1.5–3.5 s pause each time. The steps add up in this order, and each one that changes the name gives the next name to try (`src/utils/name-variants.js`):
+    1. without the legal form: *LAIT ApS* → *LAIT*;
+    2. without a country or region: *Knowit Denmark* → *Knowit*, *True Digital (US)* → *True Digital*;
+    3. without a tagline after ` - `, ` | `, `, `, ` (` or `: `: *Codiance - Coded Brilliance* → *Codiance*;
+    4. without a trailing *Group*: *IDHL Group* → *IDHL*.
+
+    For example, *itm8 Sverige AB* is tried as *itm8 Sverige*, then *itm8*. The same rules choose from the new dropdown, except that its only option isn't taken unless it has the same name. When nothing is chosen, the last dropdown stays open for a manual choice.
+
+    LinkedIn's own order of the options is the strongest signal: in 251 labelled choices, the first option with the same name was right in about 95% of cases. The log names the rule that chose the company, or the reason no company could be chosen.
   - **Manual choice**: when no rule applies, **Search**, **Search next** and the list's **Search** leave the dropdown open and wait up to 5 min for you to pick the company in Sales Navigator. **Stop** cancels the wait. A cancelled or timed-out wait puts the company on the *Needs manual choice* list.
 - **Companies file**: one of two formats. Duplicates and empty entries are skipped.
   - A text file with company names separated by commas (line breaks also work).
@@ -37,14 +46,13 @@ The panel shows these sections, top to bottom:
   - The list and the current position are remembered after the panel is closed.
   - **Needs manual choice**: companies waiting for a manual choice, each with the reason. **Search** runs that company with a manual choice, and the company leaves the list once its filter is applied. **×** or **Clear** removes companies from the list.
 - **Logo check**: when the company being searched has a logo from the CSV and the dropdown options show logos, the extension compares them. It uses a perceptual hash that copes with differences in size, padding, JPEG compression, background, and light-on-dark versions. The log lists each option's similarity, and the Companies file card shows both logos with their similarity while the company is processed.
-  - A matching logo confirms the choice made by name.
-  - When the name matches exactly, a different logo only produces a warning, because a company's LinkedIn logo may differ from the one in the file.
-  - When the choice came from a weaker rule (the only option, or a match ignoring the legal form), a clearly different logo hands the choice to the one option whose logo matches. If no option matches, the company goes to *Needs manual choice*.
-  - When the name rules can't choose, an option is chosen if its logo alone clearly matches.
+  - A matching logo confirms the choice made by name. A different logo never rejects or changes it: the file's logo differed from the LinkedIn one for about two thirds of the right companies, and options with the same name often share a logo.
+  - When the name rules can't choose, the one option whose logo clearly matches is chosen (closest within the match distance, clearly ahead of the next), as long as its name resembles the typed one.
   - The thresholds are in `LOGO_THRESHOLDS` (`src/constants/config.js`). They were set on the 170 Umbraco partner logos compared with small JPEG copies: the same logo is within 10 in about 75% of cases, and different logos are 20 or more apart in about 99.8% of cases.
 - **Manual labeling** (toggle in the Companies file card): for building a labelled set. Every search types the name and waits for your pick in the dropdown; nothing is selected automatically. What the rules would have chosen is only predicted. The log shows the prediction and whether you agreed with it, and the record keeps both. **Search all** is unavailable in this mode, so go through the file with **Search next**. Choose the logos folder first, so the records include the logo comparisons.
 - **Match records** (internal, never written to disk on their own): every company choice is stored inside the extension. Automatic choices go under `auto`; picks made by hand go under `manual`, as `mode` `fallback` (the rules couldn't choose) or `labeling`. **Export** downloads all records as a JSON file; the card shows how many there are. A record holds:
-  - `typed`, `chosen`, `companyId` (the chosen company's LinkedIn id, e.g. `2781504` from `urn:li:organization:2781504`), `chosenIndex` / `chosenInList` (position of the chosen company in the dropdown, `-1` if you picked something else);
+  - `name` (from the companies file), `typed` (the name whose dropdown the record describes: a shorter one if the search retyped it), `attempts` (the names typed before it, each with its option count and why nothing was chosen);
+  - `chosen`, `companyId` (the chosen company's LinkedIn id, e.g. `2781504` from `urn:li:organization:2781504`), `chosenIndex` / `chosenInList` (position of the chosen company in the dropdown, `-1` if you picked something else);
   - `prediction`: what the rules chose or would have chosen (`index`, `label`, `rule` or `reason`, the name rule's own pick `nameIndex` / `nameRule`, and the logo verdict). `predictionCorrect` says whether it matched your pick (manual records only);
   - `options`, one entry per dropdown option:
     - `label` and full `text` (detail lines such as the industry);

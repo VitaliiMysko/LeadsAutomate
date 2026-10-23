@@ -25,7 +25,9 @@ describe("createMatchRecord", () => {
     expect(record).toEqual({
       time: "2026-10-21T10:00:00.000Z",
       mode: "labeling",
+      name: "eCreo",
       typed: "eCreo",
+      attempts: [],
       chosen: "eCreo",
       companyId: "2389174",
       chosenIndex: 1,
@@ -44,6 +46,15 @@ describe("createMatchRecord", () => {
     expect(record.chosenIndex).toBe(-1);
     expect(record.chosenInList).toBe(false);
     expect(record.predictionCorrect).toBe(true); // both "none of the options"
+  });
+
+  test("found under a shorter name: the file's name and the earlier attempts", () => {
+    const attempts = [{ typed: "Ecreo ApS", options: 0, reason: "the dropdown list is empty" }];
+    const record = createMatchRecord(
+      { mode: MATCH_MODES.AUTO, name: "Ecreo ApS", typed: "Ecreo", attempts, chosen: "Ecreo", options, prediction: { index: 0 } },
+      date
+    );
+    expect(record).toMatchObject({ name: "Ecreo ApS", typed: "Ecreo", attempts, chosenIndex: 0 });
   });
 
   test("auto record: no ground truth, no pick time", () => {

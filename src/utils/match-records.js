@@ -13,7 +13,8 @@ export const MATCH_RECORDS_LIMIT = 5000;
 
 // Bumped when the record format changes; stored records of another version
 // are dropped. 2: `companyId`. 3: per-option features, the rules'
-// prediction, the chosen option's position, CSV data, leads count.
+// prediction, the chosen option's position, CSV data, leads count; later
+// `name` and `attempts` (shorter names), absent from earlier v3 records.
 export const MATCH_RECORDS_VERSION = 3;
 
 // LinkedIn's numeric company id from its URN ("urn:li:organization:2781504"
@@ -30,12 +31,15 @@ export function chosenIndexIn(labels, chosen) {
   return labels.indexOf(chosen);
 }
 
-// Builds a record. `options` are per-option objects ({ index, label, ... });
+// Builds a record. `name` is the name from the companies file and `typed`
+// the one whose dropdown the record describes: a shorter name when the ones
+// in `attempts` ({ typed, options, reason }, in order) found no match.
+// `options` are per-option objects ({ index, label, ... });
 // `prediction` is what the rules chose or would choose ({ index, label,
 // rule, reason, logo }). `predictionCorrect` compares it with the chosen
 // option, so it's only set when a person made the choice.
 export function createMatchRecord(
-  { mode, typed, chosen, companyId, options = [], prediction = null, csv = null, leads = null, pickMs = null },
+  { mode, name, typed, attempts = [], chosen, companyId, options = [], prediction = null, csv = null, leads = null, pickMs = null },
   date = new Date()
 ) {
   const labels = options.map((option) => option.label);
@@ -44,7 +48,9 @@ export function createMatchRecord(
   return {
     time: date.toISOString(),
     mode,
+    name: name ?? typed,
     typed,
+    attempts,
     chosen,
     companyId: companyId ?? null,
     chosenIndex,
