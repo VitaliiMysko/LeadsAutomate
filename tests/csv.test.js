@@ -1,5 +1,5 @@
 import { parseCsv } from "../src/utils/csv.js";
-import { parseCompaniesCsv, parseCompaniesFile, logoFileKey } from "../src/utils/companies-file.js";
+import { parseCompaniesCsv, parseCompaniesFile, parseCompanyId, logoFileKey } from "../src/utils/companies-file.js";
 
 describe("parseCsv", () => {
   test("handles quotes, embedded delimiters, line breaks and doubled quotes", () => {
@@ -33,29 +33,78 @@ describe("parseCompaniesCsv", () => {
 
   test("reads company_name, logo, website and country by header name, any column order and case", () => {
     expect(parseCompaniesCsv(csv)).toEqual([
-      { name: "Acme, Inc.", logoPath: "C:\\logos\\acme.png", website: "acme.com", country: "Austria" },
-      { name: "Beta Ltd", logoPath: null, website: "beta.com", country: null },
-      { name: "acme inc.", logoPath: "C:\\logos\\other.png", website: null, country: null },
+      { name: "Acme, Inc.", companyId: null, rawCompanyId: null, logoPath: "C:\\logos\\acme.png", website: "acme.com", country: "Austria" },
+      { name: "Beta Ltd", companyId: null, rawCompanyId: null, logoPath: null, website: "beta.com", country: null },
+      { name: "acme inc.", companyId: null, rawCompanyId: null, logoPath: "C:\\logos\\other.png", website: null, country: null },
     ]);
   });
 
   test("logo, website and country columns are optional", () => {
     expect(parseCompaniesCsv("company_name\nAcme\nBeta")).toEqual([
-      { name: "Acme", logoPath: null, website: null, country: null },
-      { name: "Beta", logoPath: null, website: null, country: null },
+      { name: "Acme", companyId: null, rawCompanyId: null, logoPath: null, website: null, country: null },
+      { name: "Beta", companyId: null, rawCompanyId: null, logoPath: null, website: null, country: null },
     ]);
   });
 
-  test("null without a company_name column", () => {
+  test("null without a company_name or company_id column", () => {
     expect(parseCompaniesCsv("title,logo\nAcme,x.png")).toBeNull();
     expect(parseCompaniesCsv("")).toBeNull();
+  });
+
+  test("reads company_id; names id-only rows by their id; keeps unreadable ids raw", () => {
+    const text =
+      "company_name,Company_ID\n" +
+      "Acme,2781504\n" +
+      "Beta,https://www.linkedin.com/company/beta-ltd/\n" +
+      ",urn:li:organization:42\n" +
+      "Gamma,\n";
+    expect(parseCompaniesCsv(text).map(({ name, companyId, rawCompanyId }) => ({ name, companyId, rawCompanyId }))).toEqual([
+      { name: "Acme", companyId: "2781504", rawCompanyId: "2781504" },
+      { name: "Beta", companyId: null, rawCompanyId: "https://www.linkedin.com/company/beta-ltd/" },
+      { name: "42", companyId: "42", rawCompanyId: "urn:li:organization:42" },
+      { name: "Gamma", companyId: null, rawCompanyId: null },
+    ]);
+  });
+
+  test("a company_id column alone is enough", () => {
+    expect(parseCompaniesCsv("company_id\n7\n\n8").map((company) => company.name)).toEqual(["7", "8"]);
+  });
+
+  test("dedupes by company id when there is one, else by name", () => {
+    const text = "company_name,company_id\nAcme,1\nAcme,2\nAcme Again,1\nBeta,\nbeta,\n";
+    expect(parseCompaniesCsv(text).map(({ name, companyId }) => [name, companyId])).toEqual([
+      ["Acme", "1"],
+      ["Acme", "2"],
+      ["Beta", null],
+    ]);
+  });
+});
+
+describe("parseCompanyId", () => {
+  test.each([
+    ["2781504", "2781504"],
+    [" 2781504 ", "2781504"],
+    ["urn:li:organization:2781504", "2781504"],
+    ["urn:li:fs_salesCompany:2781504", "2781504"],
+    ["https://www.linkedin.com/company/2781504/", "2781504"],
+    ["https://www.linkedin.com/company/2781504/about/", "2781504"],
+    ["https://www.linkedin.com/sales/company/2781504?_ntb=x", "2781504"],
+    ["linkedin.com/company/2781504", "2781504"],
+    ["https://www.linkedin.com/company/acme/", null],
+    ["https://www.linkedin.com/company/3m", null],
+    ["https://example.com/company/123", null],
+    ["12a", null],
+    ["", null],
+    [null, null],
+  ])("%s → %s", (value, expected) => {
+    expect(parseCompanyId(value)).toBe(expected);
   });
 });
 
 describe("parseCompaniesFile", () => {
   test("CSV with company_name", () => {
     expect(parseCompaniesFile("company_name,logo\nAcme,a.png")).toEqual([
-      { name: "Acme", logoPath: "a.png", website: null, country: null },
+      { name: "Acme", companyId: null, rawCompanyId: null, logoPath: "a.png", website: null, country: null },
     ]);
   });
 

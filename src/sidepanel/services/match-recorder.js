@@ -61,6 +61,19 @@ export function recordMatch(kind, fields) {
   return run;
 }
 
+// Deletes every record, on the user's request (to start a fresh labelled
+// set). Returns how many of each kind were deleted.
+export function clearMatchRecords() {
+  const run = writeChain.then(async () => {
+    const records = await loadMatchRecords();
+    await saveValue(STORAGE_KEYS.matchRecords, emptyRecords());
+    return Object.fromEntries(Object.values(MATCH_KINDS).map((kind) => [kind, records[kind].length]));
+  });
+  writeChain = run.catch(() => {});
+  run.then(() => listeners.forEach((listener) => listener())).catch(() => {});
+  return run;
+}
+
 // Saves all records as a JSON file through the browser's download, on the
 // user's request (the extension never writes files on its own).
 export async function downloadMatchRecords() {

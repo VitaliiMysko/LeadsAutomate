@@ -145,6 +145,39 @@ export function urlWithoutFilter(url, type) {
   return parsedUrl.toString();
 }
 
+// URN of a company in the "Current company" filter, from its numeric id.
+export function companyUrn(companyId) {
+  return `urn:li:organization:${companyId}`;
+}
+
+// The same search URL with "Current company" set to just the company with
+// LinkedIn id `companyId` (included), shown as `text`, or null when the URL
+// has no parsable query. The id alone decides the company; `text` is only
+// the label of the selected value. The value has the shape Sales Navigator
+// writes when a company is picked from the typeahead.
+export function urlWithCompany(url, companyId, text) {
+  let parsedUrl;
+  let parsed;
+  try {
+    parsedUrl = new URL(url);
+    parsed = parseRestli(parsedUrl.searchParams.get("query") ?? "");
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+  const value = { id: companyUrn(companyId), text, selectionType: SELECTION_TYPES.INCLUDED };
+  const filters = Array.isArray(parsed.filters) ? parsed.filters : [];
+  const existing = filters.find((filter) => filter?.type === FILTER_TYPES.CURRENT_COMPANY);
+  parsed.filters = existing
+    ? filters
+        .filter((filter) => filter === existing || filter?.type !== FILTER_TYPES.CURRENT_COMPANY)
+        .map((filter) => (filter === existing ? { ...filter, values: [value] } : filter))
+    : [...filters, { type: FILTER_TYPES.CURRENT_COMPANY, values: [value] }];
+  parsedUrl.searchParams.set("query", serializeRestli(parsed));
+  return parsedUrl.toString();
+}
+
 // Returns the search's filters as [{ type, values: [{ id, text, selectionType }] }],
 // or null when the URL carries no parsable `query` (e.g. a saved search
 // opened by id, before any filter is touched).
