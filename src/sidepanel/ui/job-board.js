@@ -18,10 +18,13 @@ import {
   clampCount,
   getColumnPlan,
   hasJobTitles,
+  boardToFile,
+  boardFromFile,
 } from "../../utils/priority-board.js";
 import { LEADS_COUNT, STORAGE_KEYS } from "../../constants/config.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
+import { status } from "./status.js";
 
 // "Job list" (titles from the Sales Navigator "Current job title" filter)
 // and the Management / Technical priority columns, filled by drag and drop.
@@ -408,6 +411,45 @@ function initCountInputs() {
   }
 }
 
+// --- board file ------------------------------------------------------------
+
+function describeColumns() {
+  return COLUMNS.map(
+    (column) => `${column} ${board[column].length} items (${columnTitles(board, column).length} titles), ${leadsCount[column]} leads`
+  ).join("; ");
+}
+
+function handleSaveFile() {
+  const text = JSON.stringify(boardToFile(board, leadsCount), null, 2);
+  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `job-titles-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  log.info(`Job titles saved to a file: ${describeColumns()}`);
+}
+
+// Replaces both columns and their lead counts with the file's.
+async function handleLoadFile() {
+  const file = elements.fileInput.files?.[0];
+  elements.fileInput.value = "";
+  if (!file) return;
+  try {
+    ({ board, leadsCount } = boardFromFile(await file.text(), LEADS_COUNT));
+  } catch (error) {
+    log.error(`Could not load job titles from "${file.name}": ${error.message}`);
+    status.error(`"${file.name}" is not a job titles file`);
+    return;
+  }
+  persistBoard();
+  saveValue(STORAGE_KEYS.leadsCount, leadsCount);
+  for (const column of COLUMNS) elements.countInputs[column].value = leadsCount[column];
+  render();
+  log.info(`Job titles loaded from "${file.name}": ${describeColumns()}`);
+  status.success(`Job titles loaded from "${file.name}"`);
+}
+
 // --- public API ------------------------------------------------------------
 
 export async function initJobBoard(boardElements) {
@@ -426,6 +468,8 @@ export async function initJobBoard(boardElements) {
 
   initCountInputs();
   initAddForms();
+  elements.saveButton.addEventListener("click", handleSaveFile);
+  elements.fileInput.addEventListener("change", handleLoadFile);
   initDragSources(elements.root);
   initDropZone(elements.pool, POOL);
   for (const column of COLUMNS) initDropZone(elements.columns[column], column);

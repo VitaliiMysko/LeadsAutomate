@@ -149,6 +149,13 @@
             </form>
           </div>
         </section>
+        <div class="button-row">
+          <button type="button" id="board-save-btn" class="btn btn--secondary btn--small" title="Download both columns (titles, groups, lead counts) as a JSON file">Save to file</button>
+          <label class="btn btn--secondary btn--small file-btn" title="Replace both columns with the ones saved in a file">
+            Load from file
+            <input type="file" id="board-file" accept=".json,application/json" hidden />
+          </label>
+        </div>
       </div>
     </details>
 

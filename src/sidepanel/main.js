@@ -57,6 +57,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     columns: { management: $("management-list"), technical: $("technical-list") },
     countInputs: { management: $("management-count"), technical: $("technical-count") },
     addForms: { management: $("management-add"), technical: $("technical-add") },
+    saveButton: $("board-save-btn"),
+    fileInput: $("board-file"),
   });
 
   await initSearchControls({

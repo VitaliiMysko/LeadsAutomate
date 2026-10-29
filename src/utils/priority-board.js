@@ -283,3 +283,40 @@ export function getColumnPlan(board, column) {
 export function hasJobTitles(board) {
   return COLUMNS.some((column) => board[column].length > 0);
 }
+
+// --- board file ------------------------------------------------------------
+// The columns (titles, groups, counts, manual marks) and the columns' lead
+// counts as saved to a JSON file and loaded back.
+
+export const BOARD_FILE_FORMAT = "leads-automate-job-titles";
+export const BOARD_FILE_VERSION = 1;
+
+export function boardToFile(board, leadsCount) {
+  return {
+    format: BOARD_FILE_FORMAT,
+    version: BOARD_FILE_VERSION,
+    leadsCount: Object.fromEntries(COLUMNS.map((column) => [column, leadsCount[column]])),
+    management: board.management,
+    technical: board.technical,
+    manual: board.manual,
+  };
+}
+
+// Returns { board, leadsCount } from a saved file's text; throws an Error
+// saying what's wrong when it isn't such a file.
+export function boardFromFile(text, limits = DEFAULT_LIMITS) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("not a JSON file");
+  }
+  if (data?.format !== BOARD_FILE_FORMAT) throw new Error("not a job titles file");
+  if (!Number.isInteger(data.version) || data.version > BOARD_FILE_VERSION) {
+    throw new Error(`unsupported file version ${data.version}`);
+  }
+  const leadsCount = Object.fromEntries(
+    COLUMNS.map((column) => [column, clampCount(data.leadsCount?.[column] ?? limits.default, limits)])
+  );
+  return { board: sanitizeBoard(data, limits), leadsCount };
+}

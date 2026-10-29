@@ -17,6 +17,8 @@ import {
   clampCount,
   getColumnPlan,
   hasJobTitles,
+  boardToFile,
+  boardFromFile,
   POOL,
 } from "../src/utils/priority-board.js";
 
@@ -292,5 +294,40 @@ describe("hasJobTitles", () => {
     expect(hasJobTitles(createEmptyBoard())).toBe(false);
     expect(hasJobTitles({ management: [], technical: [single("QA")], manual: [] })).toBe(true);
     expect(hasJobTitles({ management: [{ id: "g1", name: "", titles: ["CEO"], count: 1 }], technical: [], manual: [] })).toBe(true);
+  });
+});
+
+describe("boardToFile / boardFromFile", () => {
+  const limits = { min: 0, max: 9, default: 1 };
+
+  test("a saved board loads back the same, with the columns' lead counts", () => {
+    const text = JSON.stringify(boardToFile(grouped, { management: 3, technical: 0 }));
+    expect(boardFromFile(text, limits)).toEqual({ board: grouped, leadsCount: { management: 3, technical: 0 } });
+  });
+
+  test("cleans the loaded board and counts", () => {
+    const file = {
+      format: "leads-automate-job-titles",
+      version: 1,
+      leadsCount: { management: 50 },
+      management: ["CEO", { titles: ["Founder", "CEO"], count: 20 }],
+      manual: ["Founder", "Gone"],
+    };
+    expect(boardFromFile(JSON.stringify(file), limits)).toEqual({
+      board: {
+        management: [single("CEO"), { id: "g1", name: "", titles: ["Founder"], count: 9 }],
+        technical: [],
+        manual: ["Founder"],
+      },
+      leadsCount: { management: 9, technical: 1 },
+    });
+  });
+
+  test("rejects other files", () => {
+    expect(() => boardFromFile("CEO, CTO")).toThrow("not a JSON file");
+    expect(() => boardFromFile(JSON.stringify({ auto: [], manual: [] }))).toThrow("not a job titles file");
+    expect(() => boardFromFile(JSON.stringify({ format: "leads-automate-job-titles", version: 2 }))).toThrow(
+      "unsupported file version 2"
+    );
   });
 });
