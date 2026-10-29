@@ -38,7 +38,7 @@ export const LOGO_THRESHOLDS = {
   margin: 6,
 };
 
-export const LEADS_COUNT = { min: 0, max: 100, default: 1 };
+export const LEADS_COUNT = { min: 0, max: 9, default: 1 };
 
 export const STORAGE_KEYS = {
   board: "priorityBoard",

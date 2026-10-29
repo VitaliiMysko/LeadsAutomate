@@ -8,6 +8,7 @@ import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
 import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError } from "../services/tab-service.js";
+import { ensureJobTitles } from "./job-board.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
@@ -314,6 +315,16 @@ async function withBusy(task) {
   }
 }
 
+// Every search needs at least one job title in the Management or Technical
+// column.
+function checkJobTitles() {
+  if (ensureJobTitles()) return true;
+  const message = "No job titles: add at least one to the Management or Technical column before searching";
+  log.error(message);
+  status.error(message);
+  return false;
+}
+
 async function runInteractive(name) {
   await withBusy(async () => {
     status.running(`Searching "${name}"…`);
@@ -323,13 +334,13 @@ async function runInteractive(name) {
 
 async function handleSearch() {
   const name = elements.companyName.value.trim();
-  if (!name || busy) return;
+  if (!name || busy || !checkJobTitles()) return;
   setCompanyName(name);
   await runInteractive(name);
 }
 
 async function handleResolve(name) {
-  if (busy) return;
+  if (busy || !checkJobTitles()) return;
   setCompanyName(name);
   await runInteractive(name);
 }
@@ -351,7 +362,7 @@ async function searchQueued({ interactive }) {
 }
 
 async function handleSearchNext() {
-  if (busy || queue.index >= queue.companies.length) return;
+  if (busy || queue.index >= queue.companies.length || !checkJobTitles()) return;
   await withBusy(async () => {
     const { name, result } = await searchQueued({ interactive: true });
     finishStatus(name, result);
@@ -371,7 +382,7 @@ async function interruptibleWait(ms) {
 }
 
 async function handleSearchAll() {
-  if (busy || queue.index >= queue.companies.length) return;
+  if (busy || queue.index >= queue.companies.length || !checkJobTitles()) return;
   batchRunning = true;
   const stats = { found: 0, empty: 0, failed: 0 };
   const leftForManual = [];

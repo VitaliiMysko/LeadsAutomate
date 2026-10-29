@@ -343,24 +343,19 @@ h2 {
   padding: 2px 4px;
 }
 
-/* Fixed height: long columns scroll instead of stretching the panel. */
+/* Grows with its titles: the Job titles section can be collapsed, so the
+   panel scrolls instead of the column. Fills the column, so the shorter of
+   the two stays a drop zone as tall as the other. */
 .rank-list {
   list-style: none;
   margin: 0;
-  padding: 0 2px 0 0;
-  height: 220px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
+  padding: 0;
+  flex: 1;
+  min-height: 60px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   border-radius: 6px;
-}
-
-/* Items keep their height in the fixed-height list; it scrolls instead. */
-.rank-list > * {
-  flex-shrink: 0;
 }
 
 .rank-list__placeholder {
@@ -377,6 +372,7 @@ h2 {
 }
 
 .rank-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -413,16 +409,90 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+/* Shown over the end of the title on hover, so they take no room. */
 .rank-item__actions {
-  display: flex;
-  flex: none;
-  opacity: 0;
-  transition: opacity 0.15s;
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: none;
+  border-radius: 5px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
 }
 
-.rank-item:hover .rank-item__actions,
-.rank-item:focus-within .rank-item__actions {
-  opacity: 1;
+/* Next to an entry's lead count, not over it. */
+.entry-count + .rank-item__actions {
+  right: 42px;
+}
+
+.rank-item:hover > .rank-item__actions,
+.rank-item:focus-within > .rank-item__actions,
+.rank-group__head:hover > .rank-item__actions,
+.rank-group__head:focus-within > .rank-item__actions {
+  display: flex;
+}
+
+/* Lead count of a title or a group. */
+.rank-list input.entry-count {
+  flex: none;
+  width: 34px;
+  padding: 1px 3px;
+  font-size: 11.5px;
+}
+
+/* A group: titles close in meaning sharing one lead count. */
+.rank-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--col-color);
+  border-radius: 6px;
+  background: var(--surface);
+  cursor: grab;
+  user-select: none;
+  font-size: 12px;
+}
+
+.rank-group__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 3px;
+}
+
+.rank-group input.rank-group__name {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rank-group input.rank-group__name:hover,
+.rank-group input.rank-group__name:focus {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+/* Also the drop zone for titles joining the group. */
+.rank-group__list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 12px;
+  margin: 0 0 0 14px;
+  padding: 0;
+  list-style: none;
+  border-radius: 4px;
+}
+
+.rank-item--sub {
+  padding: 2px 4px 2px 6px;
 }
 
 .rank-item--stale .rank-item__text {
@@ -811,7 +881,7 @@ input[readonly] {
 
 .current-logo__img {
   flex: none;
-  width: 40px;
+  width: 34px;
   height: 40px;
   object-fit: contain;
   padding: 2px;
