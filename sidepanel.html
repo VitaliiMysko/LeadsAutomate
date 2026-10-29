@@ -36,6 +36,28 @@
         </label>
         <span id="companies-file-name" class="file-name">No file selected</span>
       </div>
+      <details class="file-help">
+        <summary class="file-help__head">File format</summary>
+        <div class="file-help__body">
+          <p>A <b>.txt</b> file: company names separated by commas or line breaks.</p>
+          <p>A <b>.csv</b> file: a header row, then one company per row. Separated by <code>,</code> or <code>;</code>; columns in any order, any letter case; other columns are ignored. It needs at least one of <code>company_id</code>, <code>linkedin</code>, <code>company_name</code>. Each row uses the strongest one it has, in this order:</p>
+          <dl class="file-help__columns">
+            <dt>company_id</dt>
+            <dd>LinkedIn company id: <code>2781504</code>, <code>urn:li:organization:2781504</code> or a page URL with the number. Selects the company exactly, without the typeahead.</dd>
+            <dt>linkedin</dt>
+            <dd>Company page URL. Its id is read from the page when the company is searched (a <code>/school/</code> page with your LinkedIn session, others as a logged-out visitor), then used as <code>company_id</code>. A row without <code>company_name</code> takes the company's name on LinkedIn.</dd>
+            <dt>company_name</dt>
+            <dd>Name typed in the <i>Current company</i> filter, the company chosen among the suggestions. Also the name shown for the row.</dd>
+            <dt>logo</dt>
+            <dd>Path of the logo image on this computer; then <i>Choose logos folder</i>. Helps choose between suggestions with similar names.</dd>
+          </dl>
+          <p>Without an id, a company is searched by name.</p>
+          <pre class="file-help__example">company_id,linkedin,company_name,logo
+2781504,,Moriyama,
+,https://www.linkedin.com/company/thisistangent/,Tangent,
+,,Acme,C:\logos\acme.png</pre>
+        </div>
+      </details>
       <div id="logos-row" class="file-row" hidden>
         <label id="logo-folder-btn" class="btn btn--secondary btn--small file-btn" title="The folder holding the logo files named in the CSV's logo column">
           Choose logos folder
@@ -141,5 +163,13 @@
       <div id="log-filters" class="log-filters" role="group" aria-label="Log marker filters"></div>
       <div id="log" class="log" role="log" aria-live="off"></div>
     </section>
+
+    <dialog id="columns-dialog" class="notice" aria-labelledby="columns-dialog-title">
+      <h2 id="columns-dialog-title" class="notice__title"></h2>
+      <div id="columns-dialog-text" class="notice__text"></div>
+      <div class="notice__actions">
+        <button type="button" id="columns-dialog-ok-btn" class="btn btn--primary">OK</button>
+      </div>
+    </dialog>
   </body>
 </html>

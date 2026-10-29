@@ -643,6 +643,114 @@ input[readonly] {
   white-space: nowrap;
 }
 
+/* Column mapping of a CSV companies file, acknowledged with OK. */
+.notice {
+  width: min(360px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.notice::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.notice__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: normal;
+  overflow-wrap: anywhere;
+}
+
+.notice__text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.notice__text p {
+  margin: 0;
+}
+
+.notice--warn .notice__title {
+  color: var(--warn);
+}
+
+.notice__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+/* "File format": the columns a companies file may have. */
+.file-help {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.file-help__head {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+}
+
+.file-help__head:hover {
+  color: var(--text);
+}
+
+.file-help__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  line-height: 1.4;
+}
+
+.file-help__body p {
+  margin: 0;
+}
+
+.file-help code,
+.file-help dt {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.file-help__columns {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.file-help__columns dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-help__example {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-x: auto;
+}
+
 .progress {
   display: flex;
   align-items: center;

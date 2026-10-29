@@ -439,7 +439,7 @@ async function waitForResults(tabId, log) {
 //
 // `fileLogo` ({ hash }) is the company's logo from the companies CSV: when
 // given, the choice is also checked against the dropdown's logos. `csv`
-// ({ companyId, website, country, hasLogo }) goes into the match record.
+// ({ companyId, linkedin, hasLogo }) goes into the match record.
 //
 // `companyId` is the company's LinkedIn id from the companies CSV: the
 // company is then set by it (searchById), with no typeahead, rules or
