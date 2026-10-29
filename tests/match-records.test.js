@@ -16,7 +16,7 @@ describe("createMatchRecord", () => {
         companyId: "2389174",
         options,
         prediction: { index: 0, label: "Ecreo", rule: "exact" },
-        csv: { website: "ecreo.pl", country: "Poland", hasLogo: true },
+        csv: { companyId: "2389174", linkedin: null, hasLogo: true },
         leads: 4,
         pickMs: 5200,
       },
@@ -36,7 +36,7 @@ describe("createMatchRecord", () => {
       predictionCorrect: false,
       pickMs: 5200,
       leads: 4,
-      csv: { website: "ecreo.pl", country: "Poland", hasLogo: true },
+      csv: { companyId: "2389174", linkedin: null, hasLogo: true },
       options,
     });
   });

@@ -2,6 +2,7 @@ import {
   parseRestli,
   serializeRestli,
   urlWithoutFilter,
+  urlWithCompany,
   getSearchFilters,
   getFilterValues,
   getFilterTexts,
@@ -128,6 +129,39 @@ describe("urlWithoutFilter", () => {
   test("returns null without a parsable query", () => {
     expect(urlWithoutFilter("https://www.linkedin.com/sales/search/people?savedSearchId=5", "CURRENT_COMPANY")).toBeNull();
     expect(urlWithoutFilter("not a url", "CURRENT_COMPANY")).toBeNull();
+  });
+});
+
+describe("urlWithCompany", () => {
+  const query =
+    "(recentSearchParam:(id:123,doLogHistory:true),filters:List(" +
+    `(type:CURRENT_TITLE,values:List((id:8,text:${enc("Chief Technology Officer")},selectionType:INCLUDED))),` +
+    `(type:CURRENT_COMPANY,values:List((id:${enc("urn:li:organization:1")},text:Old,selectionType:INCLUDED),` +
+    `(text:Acme,selectionType:EXCLUDED)))` +
+    "))";
+
+  test("replaces every company value with the one company, keeping the rest of the search", () => {
+    const url = urlWithCompany(searchUrl(query), "2781504", "Acme, Inc. (UK)");
+    expect(getFilterValues(url, FILTER_TYPES.CURRENT_COMPANY)).toEqual([
+      { id: "urn:li:organization:2781504", text: "Acme, Inc. (UK)", selectionType: SELECTION_TYPES.INCLUDED },
+    ]);
+    expect(getFilterTexts(url, FILTER_TYPES.CURRENT_COMPANY, SELECTION_TYPES.EXCLUDED)).toEqual([]);
+    expect(getFilterTexts(url, FILTER_TYPES.CURRENT_TITLE)).toEqual(["Chief Technology Officer"]);
+    expect(getSearchFilters(url).map((filter) => filter.type)).toEqual(["CURRENT_TITLE", "CURRENT_COMPANY"]);
+    expect(new URL(url).searchParams.get("sessionId")).toBe("abc");
+  });
+
+  test("adds the company filter when the search has none", () => {
+    const url = urlWithCompany(searchUrl("(filters:List())"), "5", "Beta");
+    expect(getFilterValues(url, FILTER_TYPES.CURRENT_COMPANY)).toEqual([
+      { id: "urn:li:organization:5", text: "Beta", selectionType: SELECTION_TYPES.INCLUDED },
+    ]);
+    expect(getFilterValues(urlWithCompany(searchUrl("()"), "5", "Beta"), FILTER_TYPES.CURRENT_COMPANY)).toHaveLength(1);
+  });
+
+  test("returns null without a parsable query", () => {
+    expect(urlWithCompany("https://www.linkedin.com/sales/search/people?savedSearchId=5", "1", "A")).toBeNull();
+    expect(urlWithCompany("not a url", "1", "A")).toBeNull();
   });
 });
 

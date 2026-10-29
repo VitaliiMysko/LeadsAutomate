@@ -87,6 +87,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     labelingToggle: $("labeling-toggle"),
     recordCounts: $("record-counts"),
     exportRecordsButton: $("export-records-btn"),
+    cleanRecordsButton: $("clean-records-btn"),
+    columnsDialog: $("columns-dialog"),
+    columnsDialogTitle: $("columns-dialog-title"),
+    columnsDialogText: $("columns-dialog-text"),
+    columnsDialogOkButton: $("columns-dialog-ok-btn"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {

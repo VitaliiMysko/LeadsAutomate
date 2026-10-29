@@ -1,10 +1,12 @@
 import { STORAGE_KEYS, TIMING } from "../../constants/config.js";
-import { parseCompaniesFile } from "../../utils/companies-file.js";
+import { parseCompaniesFile, companiesCsvColumns, columnMappingLines } from "../../utils/companies-file.js";
+import { companyPagePath } from "../../utils/company-page.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
 import { logoSimilarity } from "../../utils/image-hash.js";
 import { searchCompany } from "../services/search-runner.js";
 import { loadCompanyLogos } from "../services/logo-service.js";
-import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords } from "../services/match-recorder.js";
+import { companyIdFromPage } from "../services/company-page-service.js";
+import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError } from "../services/tab-service.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
@@ -23,7 +25,7 @@ import { status } from "./status.js";
 // and thumbnails are kept (`logos`) so a search can check the dropdown's
 // logos against them.
 let elements = null;
-let queue = { fileName: "", companies: [], index: 0 }; // companies: [{ name, logoPath }]
+let queue = { fileName: "", companies: [], index: 0 }; // companies: [{ name, companyId, logoPath, ... }]
 let logos = {}; // company name → { hash, thumb }
 // Manual labeling: every search waits for the user's pick; the rules'
 // choice is only predicted and recorded next to it.
@@ -33,6 +35,9 @@ let busy = false;
 let batchRunning = false;
 let waitingManual = false;
 let stopRequested = false;
+// Clean deletes the records on a second click within CLEAN_CONFIRM_MS.
+const CLEAN_CONFIRM_MS = 4000;
+let cleanConfirmTimer = null;
 
 function persistQueue() {
   saveValue(STORAGE_KEYS.companyQueue, queue);
@@ -49,10 +54,54 @@ function findCompany(name) {
 }
 
 // CSV data recorded with each match.
-function csvFor(name) {
-  const company = findCompany(name);
+function csvFor(company) {
   if (!company) return null;
-  return { website: company.website ?? null, country: company.country ?? null, hasLogo: !!company.logoPath };
+  return {
+    companyId: company.companyId ?? null,
+    linkedin: company.linkedin ?? null,
+    hasLogo: !!company.logoPath,
+  };
+}
+
+// The LinkedIn page URL of a companies-file entry without a company id,
+// when it's one the id can be read from (company-page.js).
+const pagePathFor = (company) => (company && !company.companyId ? companyPagePath(company.linkedin) : null);
+
+// Gives a company named after its page URL its name on LinkedIn, carrying
+// over what's kept by name: its logo, its manual-choice list entry and the
+// Name company field.
+function renameCompany(company, name) {
+  const previous = company.name;
+  company.name = name;
+  company.nameFromPage = false;
+  if (logos[previous]) {
+    logos = Object.fromEntries(Object.entries(logos).map(([key, value]) => [key === previous ? name : key, value]));
+    persistLogos();
+  }
+  if (unresolved.some((item) => item.name === previous)) {
+    unresolved = unresolved.map((item) => (item.name === previous ? { ...item, name } : item));
+    persistUnresolved();
+  }
+  if (elements.companyName.value === previous) setCompanyName(name);
+  log.info(`"${previous}" is named "${name}" from its LinkedIn page`);
+}
+
+// Sets the company's id from its LinkedIn page, and its name when the file
+// had none; on failure it's searched by name, and the page is tried again on
+// its next search.
+async function resolveCompanyId(company) {
+  const path = pagePathFor(company);
+  if (!path) return;
+  try {
+    const { id, name, cached, signedIn } = await companyIdFromPage(path);
+    company.companyId = id;
+    const how = cached ? " (remembered)" : signedIn ? " (with your LinkedIn session)" : "";
+    log.info(`"${company.name}": company id ${id} read from linkedin.com/${path}${how}`);
+    if (company.nameFromPage && name) renameCompany(company, name);
+    persistQueue();
+  } catch (error) {
+    log.warn(`"${company.name}": company id couldn't be read from linkedin.com/${path} (${error.message}), searching by name`);
+  }
 }
 
 async function renderRecordCounts() {
@@ -83,7 +132,9 @@ function showCurrentLogo(name, result = null) {
       ? `${logoSimilarity(logo.distance)}% similar · ${logo.verdict}`
       : result.outcome === "unresolved"
         ? "not chosen"
-        : "no logo to compare";
+        : result.outcome === "by-id"
+          ? "chosen by company id"
+          : "no logo to compare";
 }
 
 function persistUnresolved() {
@@ -160,6 +211,9 @@ function updateControls() {
   elements.searchAllButton.title = labeling ? "Not available in manual labeling: use Search next" : "";
   elements.labelingToggle.checked = labeling;
   elements.labelingToggle.disabled = busy;
+  if (!labeling || busy) resetCleanConfirm();
+  elements.cleanRecordsButton.hidden = !labeling;
+  elements.cleanRecordsButton.disabled = busy;
   elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
   elements.resetQueueButton.disabled = busy || queue.index === 0;
   elements.fileInput.disabled = busy;
@@ -190,17 +244,23 @@ function setCompanyName(name) {
 }
 
 // Runs one company search, reporting to the log; status is left to the caller.
+// `company` is the companies-file entry (for its id), else found by name.
 // Returns { ok, fatal, outcome, chosen, count, reason, error }.
-async function runOne(name, { interactive }) {
+async function runOne(name, { interactive, company = findCompany(name) }) {
   const startedAt = Date.now();
-  log.info(`Search started: "${name}"`);
+  const fileName = company?.name;
+  await resolveCompanyId(company);
+  // Renamed after its LinkedIn page.
+  if (company && company.name !== fileName) name = company.name;
+  log.info(`Search started: "${name}"${company?.companyId ? ` (company id ${company.companyId})` : ""}`);
   const fileLogo = logoFor(name);
   showCurrentLogo(name);
   try {
     const result = await searchCompany(name, {
       log,
+      companyId: company?.companyId ?? null,
       fileLogo,
-      csv: csvFor(name),
+      csv: csvFor(company),
       labeling,
       waitForManualChoice: interactive,
       shouldStop: () => stopRequested,
@@ -277,16 +337,17 @@ async function handleResolve(name) {
 // Shared by Search next and Search all. Doesn't advance past a company when
 // the failure was fatal (wrong page...), so it can be retried.
 async function searchQueued({ interactive }) {
-  const { name } = queue.companies[queue.index];
+  const company = queue.companies[queue.index];
+  const { name } = company;
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
-  const result = await runOne(name, { interactive });
+  const result = await runOne(name, { interactive, company });
   if (!result.fatal) {
     queue.index++;
     persistQueue();
     updateControls();
   }
-  return { name, result };
+  return { name: company.name, result };
 }
 
 async function handleSearchNext() {
@@ -386,13 +447,42 @@ function handleStop() {
   updateControls();
 }
 
+// Shows how a CSV file's columns are read: in detail in the log, and the
+// columns found in a dialog the user closes with OK; resolves once they have.
+async function acknowledgeColumns(fileName, text) {
+  const columns = companiesCsvColumns(text);
+  if (!columns) return;
+  const { found, lines, readAsList } = columnMappingLines(columns);
+  const title = `Columns of "${fileName}"`;
+  (readAsList ? log.warn : log.info)(`${title}: ${lines.join(" ")}`);
+
+  const { columnsDialog: dialog, columnsDialogTitle, columnsDialogText, columnsDialogOkButton } = elements;
+  columnsDialogTitle.textContent = title;
+  columnsDialogText.replaceChildren(
+    ...found.map((line) => {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      return paragraph;
+    })
+  );
+  dialog.classList.toggle("notice--warn", readAsList);
+  await new Promise((resolve) => {
+    columnsDialogOkButton.addEventListener("click", () => dialog.close(), { once: true });
+    dialog.addEventListener("close", resolve, { once: true });
+    dialog.showModal();
+    columnsDialogOkButton.focus();
+  });
+}
+
 async function handleFile() {
   const file = elements.fileInput.files?.[0];
   elements.fileInput.value = "";
   if (!file) return;
 
   try {
-    const companies = parseCompaniesFile(await file.text());
+    const text = await file.text();
+    if (/\.csv$/i.test(file.name)) await acknowledgeColumns(file.name, text);
+    const companies = parseCompaniesFile(text);
     if (!companies.length) {
       log.error(`"${file.name}" contains no company names`);
       status.error(`No company names in "${file.name}"`);
@@ -404,7 +494,28 @@ async function handleFile() {
     persistLogos();
     setCompanyName(companies[0].name);
     const withLogo = companies.filter((company) => company.logoPath).length;
-    log.info(`Loaded ${companies.length} companies from "${file.name}"${withLogo ? `, ${withLogo} with a logo` : ""}`);
+    const withId = companies.filter((company) => company.companyId).length;
+    const withPage = companies.filter(pagePathFor).length;
+    const extras = [
+      withId && `${withId} with a company id`,
+      withPage && `${withPage} with a LinkedIn page to read the id from when searched`,
+      withLogo && `${withLogo} with a logo`,
+    ].filter(Boolean);
+    log.info(`Loaded ${companies.length} companies from "${file.name}"${extras.length ? `, ${extras.join(", ")}` : ""}`);
+    const badIds = companies.filter((company) => company.rawCompanyId && !company.companyId && !pagePathFor(company));
+    if (badIds.length) {
+      log.warn(
+        `company_id isn't a numeric LinkedIn id for ${badIds.length} companies, searched by name instead: ` +
+          badIds.map((company) => `"${company.name}" (${company.rawCompanyId})`).join(", ")
+      );
+    }
+    const badPages = companies.filter((company) => company.linkedin && !company.companyId && !pagePathFor(company));
+    if (badPages.length) {
+      log.warn(
+        `linkedin isn't a LinkedIn company page URL for ${badPages.length} companies, searched by name instead: ` +
+          badPages.map((company) => `"${company.name}" (${company.linkedin})`).join(", ")
+      );
+    }
     if (withLogo) log.warn("Choose the folder holding the logos so they can be compared with LinkedIn's");
     status.idle(`${companies.length} companies loaded`);
   } catch (error) {
@@ -441,7 +552,7 @@ async function handleLogoFolder() {
     const total = queue.companies.filter((company) => company.logoPath).length;
     const summary = `${result.logos.size} of ${total} logos loaded`;
     if (result.missing.length) log.warn(`Logo file not found in the folder for: ${result.missing.join(", ")}`);
-    if (result.failed.length) log.warn(`Logo couldn't be read (or is blank) for: ${result.failed.join(", ")}`);
+    if (result.failed.length) log.warn(`Logo couldn't be read for: ${result.failed.join(", ")}`);
     const complete = result.logos.size === total;
     (complete ? log.success : log.warn)(summary);
     (complete ? status.success : status.warn)(summary);
@@ -454,6 +565,35 @@ async function handleExportRecords() {
     log.info(`Exported match records: ${counts.auto} auto, ${counts.manual} manual`);
   } catch (error) {
     log.error(`Could not export match records: ${error.message}`);
+  }
+}
+
+function resetCleanConfirm() {
+  if (!cleanConfirmTimer) return;
+  clearTimeout(cleanConfirmTimer);
+  cleanConfirmTimer = null;
+  elements.cleanRecordsButton.textContent = "Clean";
+  elements.cleanRecordsButton.classList.remove("btn--danger");
+}
+
+// Deletes all match records, so a labelling session starts from an empty
+// set. The first click only asks for confirmation.
+async function handleCleanRecords() {
+  if (busy || !labeling) return;
+  if (!cleanConfirmTimer) {
+    elements.cleanRecordsButton.textContent = "Confirm?";
+    elements.cleanRecordsButton.classList.add("btn--danger");
+    cleanConfirmTimer = setTimeout(resetCleanConfirm, CLEAN_CONFIRM_MS);
+    log.info("Click Clean again to delete all match records (Export them first to keep them)");
+    return;
+  }
+  resetCleanConfirm();
+  try {
+    const counts = await clearMatchRecords();
+    log.success(`Match records deleted: ${counts.auto} auto, ${counts.manual} manual`);
+    status.idle("Match records cleaned");
+  } catch (error) {
+    log.error(`Could not delete match records: ${error.message}`);
   }
 }
 
@@ -485,11 +625,13 @@ export async function initSearchControls(controlElements) {
     const companies = storedQueue.companies
       .map((entry) => (typeof entry === "string" ? { name: entry, logoPath: null } : entry))
       .filter((entry) => typeof entry?.name === "string")
-      .map(({ name, logoPath, website, country }) => ({
+      .map(({ name, companyId, rawCompanyId, logoPath, linkedin, nameFromPage }) => ({
         name,
+        companyId: typeof companyId === "string" ? companyId : null,
+        rawCompanyId: typeof rawCompanyId === "string" ? rawCompanyId : null,
         logoPath: typeof logoPath === "string" ? logoPath : null,
-        website: typeof website === "string" ? website : null,
-        country: typeof country === "string" ? country : null,
+        linkedin: typeof linkedin === "string" ? linkedin : null,
+        nameFromPage: nameFromPage === true,
       }));
     queue = {
       fileName: String(storedQueue.fileName ?? ""),
@@ -520,6 +662,9 @@ export async function initSearchControls(controlElements) {
   elements.logoFolderInput.addEventListener("change", handleLogoFolder);
   elements.labelingToggle.addEventListener("change", handleLabelingToggle);
   elements.exportRecordsButton.addEventListener("click", handleExportRecords);
+  elements.cleanRecordsButton.addEventListener("click", handleCleanRecords);
+  // Only OK closes the column mapping dialog, not Esc.
+  elements.columnsDialog.addEventListener("cancel", (event) => event.preventDefault());
   subscribeMatchRecords(renderRecordCounts);
   renderRecordCounts();
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);

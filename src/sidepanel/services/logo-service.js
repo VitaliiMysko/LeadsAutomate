@@ -8,13 +8,35 @@ import { logoFileKey } from "../../utils/companies-file.js";
 const MAX_SIDE = 256;
 const THUMB_SIDE = 48;
 
+function draw(image, width, height, scale) {
+  const canvas = new OffscreenCanvas(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+const isSvg = (blob) => blob.type === "image/svg+xml" || /\.svg$/i.test(blob.name ?? "");
+
+// createImageBitmap can't decode SVG, so it's loaded as an <img>. Being
+// vector, it's drawn at maxSide whatever its declared size (one with no
+// size of its own is taken as square).
+async function decodeSvg(blob, maxSide) {
+  const url = URL.createObjectURL(new Blob([blob], { type: "image/svg+xml" }));
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const width = image.naturalWidth || maxSide;
+    const height = image.naturalHeight || maxSide;
+    return draw(image, width, height, maxSide / Math.max(width, height));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function decode(blob, maxSide) {
+  if (isSvg(blob)) return decodeSvg(blob, maxSide);
   const bitmap = await createImageBitmap(blob);
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = new OffscreenCanvas(width, height);
-  canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
+  const canvas = draw(bitmap, bitmap.width, bitmap.height, Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height)));
   bitmap.close();
   return canvas;
 }
@@ -39,8 +61,9 @@ async function thumbnail(blob) {
 
 // Hashes the logo of every company that has a logoPath, matching it by file
 // name among `files` (a folder the user picked). Returns a Map
-// name → { hash, thumb } and the companies whose file wasn't found or
-// couldn't be read. Calls onProgress(done, total) as it goes.
+// name → { hash, thumb }, the companies whose file wasn't found, and those
+// whose file couldn't be read, each with the reason. Calls
+// onProgress(done, total) as it goes.
 export async function loadCompanyLogos(companies, files, onProgress = () => {}) {
   const byName = new Map([...files].map((file) => [file.name.toLowerCase(), file]));
   const wanted = companies.filter((company) => company.logoPath);
@@ -56,9 +79,9 @@ export async function loadCompanyLogos(companies, files, onProgress = () => {}) 
       try {
         const hash = await hashBlob(file);
         if (hash) logos.set(company.name, { hash, thumb: await thumbnail(file) });
-        else failed.push(company.name);
-      } catch {
-        failed.push(company.name);
+        else failed.push(`${company.name} (blank image)`);
+      } catch (error) {
+        failed.push(`${company.name} (${file.name}: ${error?.message || "can't be decoded"})`);
       }
     }
     onProgress(done + 1, wanted.length);

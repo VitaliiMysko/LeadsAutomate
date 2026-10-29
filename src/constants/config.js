@@ -15,6 +15,10 @@ export const TIMING = {
   manualChoiceTimeoutMs: 5 * 60 * 1000,
   // Random pause before typing a shorter name when the first had no match.
   betweenRetypesMs: [1500, 3500],
+  // Random pause before setting a company by its id from the companies file.
+  beforeCompanyByIdMs: [800, 2000],
+  // Random pause before reading a company id from its LinkedIn page.
+  beforeCompanyPageMs: [800, 2000],
 };
 
 // How many shorter names (name-variants.js) a search may try after the name
@@ -47,6 +51,7 @@ export const STORAGE_KEYS = {
   jobSectionOpen: "jobSectionOpen",
   unresolvedCompanies: "unresolvedCompanies",
   matchRecords: "companyMatchRecords",
+  companyPageIds: "companyPageIds",
 };
 
 export const LOG_LIMIT = 1000;

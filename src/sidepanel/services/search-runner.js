@@ -1,4 +1,11 @@
-import { FILTER_TYPES, SELECTION_TYPES, getFilterTexts, getFilterValues, urlWithoutFilter } from "../../utils/restli-query.js";
+import {
+  FILTER_TYPES,
+  SELECTION_TYPES,
+  getFilterTexts,
+  getFilterValues,
+  urlWithoutFilter,
+  urlWithCompany,
+} from "../../utils/restli-query.js";
 import { chooseCompanyOption, resemblesName, hasSameName, MATCH_RULES } from "../../utils/company-match.js";
 import { shorterNameVariants } from "../../utils/name-variants.js";
 import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
@@ -18,6 +25,11 @@ const allCompanies = (url) => [
   ...includedCompanies(url),
   ...getFilterTexts(url, COMPANY, SELECTION_TYPES.EXCLUDED),
 ];
+// The company filter in `url` is just the company with id `companyId`, included.
+const isOnlyCompany = (url, companyId) => {
+  const values = getFilterValues(url, COMPANY);
+  return allCompanies(url).length === 1 && values.length === 1 && companyIdFromUrn(values[0].id) === companyId;
+};
 
 async function saveRecord(kind, fields, log) {
   try {
@@ -126,6 +138,124 @@ async function removeCompanyValues(tabId, url, log) {
   throw new Error(
     `Previous company filter values were not removed (tried: ${REMOVE_STRATEGIES.join(", ")}): ${allCompanies(url).join(", ")}`
   );
+}
+
+// Ways to set the company by its id, tried in order, like REMOVE_STRATEGIES:
+// the search URL with the company in it, followed in the page, else loaded.
+const APPLY_BY_ID_STRATEGIES = ["in-page-navigation", "reload"];
+
+// Polls until the tab URL holds just the company `companyId` and the page
+// shows its value as selected with none of `previous` left; returns that
+// URL, or null when time runs out. The URL alone isn't enough after in-page
+// navigation: it's the one the extension wrote, followed by the page or not.
+async function waitForCompanyShown(tabId, companyId, previous, timeout) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const url = (await chrome.tabs.get(tabId)).url;
+    if (isOnlyCompany(url, companyId)) {
+      const [{ text }] = getFilterValues(url, COMPANY);
+      const others = previous.filter((value) => value !== text);
+      const { present } = await sendToContent(tabId, "presentFilterValues", { filterType: COMPANY, values: [text, ...others] });
+      if (present.length === 1 && present[0] === text) return url;
+    }
+    await sleep(400);
+  }
+  return null;
+}
+
+const APPLIERS_BY_ID = {
+  async "in-page-navigation"(tabId, target, companyId, previous, log) {
+    await sendToContent(tabId, "navigateInPage", { url: target });
+    const url = await waitForCompanyShown(tabId, companyId, previous, TIMING.selectAttemptTimeoutMs);
+    if (url) return url;
+
+    const nowUrl = (await chrome.tabs.get(tabId)).url;
+    log.debug(`After in-page navigation: URL companies=[${allCompanies(nowUrl).join(", ")}]`);
+    await logFilterSnapshot(tabId, [...new Set([...allCompanies(nowUrl), ...previous])], log, "company by id not shown");
+    const { restored } = await sendToContent(tabId, "undoInPageNavigation");
+    log.debug(`Previous URL ${restored ? "restored" : "not restored"}`);
+    return null;
+  },
+
+  // After a page load the URL is what Sales Navigator made of it, so it
+  // decides; a value the page doesn't show under the given label is only
+  // reported.
+  async reload(tabId, target, companyId, previous, log) {
+    await chrome.tabs.update(tabId, { url: target });
+    await waitForTabUrl(tabId, (candidate) => isOnlyCompany(candidate, companyId), {
+      description: "the search URL with the company id",
+    });
+    await waitForFilterReady(tabId);
+    const url = (await chrome.tabs.get(tabId)).url;
+    if (!isOnlyCompany(url, companyId)) {
+      throw new Error(`the loaded search has companies [${allCompanies(url).join(", ")}] instead of id ${companyId}`);
+    }
+    if (!(await waitForCompanyShown(tabId, companyId, previous, TIMING.selectAttemptTimeoutMs))) {
+      log.warn(`The URL has company id ${companyId}, but the page doesn't show "${getFilterValues(url, COMPANY)[0].text}" as selected`);
+    }
+    return url;
+  },
+};
+
+// Replaces every "Current company" value with the company whose LinkedIn id
+// is `companyId`, labelled `text`, without the typeahead; returns the
+// applied URL. Throws when no strategy worked.
+async function applyCompanyById(tabId, companyId, text, log) {
+  let url = (await chrome.tabs.get(tabId)).url;
+  log.info(`Setting Current company to id ${companyId} ("${text}")`);
+  await sleep(randomBetween(...TIMING.beforeCompanyByIdMs));
+
+  for (const strategy of APPLY_BY_ID_STRATEGIES) {
+    const target = urlWithCompany(url, companyId, text);
+    if (!target) throw new Error("could not read the search filters from the page URL");
+    const previous = allCompanies(url);
+    const startedAt = Date.now();
+    if (strategy === "reload") log.warn("Setting the company without reload failed; loading the search with it");
+
+    let applied = null;
+    try {
+      applied = await APPLIERS_BY_ID[strategy](tabId, target, companyId, previous, log);
+    } catch (error) {
+      if (error instanceof FatalError) throw error;
+      log.warn(`Setting the company by ${strategy} failed: ${error.message}`);
+    }
+    const took = formatDuration(Date.now() - startedAt);
+    if (applied) {
+      log.debug(`Company id ${companyId} applied by ${strategy} (${took})`);
+      return applied;
+    }
+    log.warn(`Setting the company by ${strategy} had no effect (${took})`);
+    url = (await chrome.tabs.get(tabId)).url;
+  }
+  throw new Error(`company id ${companyId} was not applied (tried: ${APPLY_BY_ID_STRATEGIES.join(", ")})`);
+}
+
+// Sets the company by its id from the companies file. Returns the search
+// result, or null when it couldn't be set (the caller then searches by name).
+async function searchById(tab, name, companyId, log) {
+  if (isOnlyCompany(tab.url, companyId)) {
+    log.info(`Company id ${companyId} ("${name}") is already the only Current company filter value`);
+    return { outcome: "already", chosen: name, companyId, count: await waitForResults(tab.id, log) };
+  }
+  try {
+    await applyCompanyById(tab.id, companyId, name, log);
+  } catch (error) {
+    if (error instanceof FatalError) throw error;
+    log.warn(`Could not set "${name}" by company id: ${error.message}. Searching by name instead`);
+    return null;
+  }
+  log.success(`Selected "${name}" by company id ${companyId}`);
+  const count = await waitForResults(tab.id, log);
+  if (count === 0) log.warn(`No leads for company id ${companyId}: check that it's the right id for "${name}" in the file`);
+  return { outcome: "by-id", chosen: name, companyId, count };
+}
+
+// Warns when the company chosen in the dropdown isn't the one the companies
+// file names by id.
+function checkFileCompanyId(fileCompanyId, chosenId, chosen, log) {
+  if (!fileCompanyId || !chosenId) return;
+  if (chosenId === fileCompanyId) log.success(`"${chosen}" has the file's company id ${fileCompanyId}`);
+  else log.warn(`"${chosen}" has company id ${chosenId}, the file gives ${fileCompanyId}`);
 }
 
 // Waits for a (re)loaded search page: loaded, page script answering and
@@ -309,16 +439,29 @@ async function waitForResults(tabId, log) {
 //
 // `fileLogo` ({ hash }) is the company's logo from the companies CSV: when
 // given, the choice is also checked against the dropdown's logos. `csv`
-// ({ website, country, hasLogo }) goes into the match record.
+// ({ companyId, linkedin, hasLogo }) goes into the match record.
 //
-// Returns { outcome: "already" | "auto" | "manual" | "unresolved", chosen,
-// typed, rule, reason, logo, count }. Throws FatalError when a batch run can't go on.
+// `companyId` is the company's LinkedIn id from the companies CSV: the
+// company is then set by it (searchById), with no typeahead, rules or
+// logos and no match record, and only when that fails is it searched by
+// name. In labeling mode the name search always runs; the id then only
+// checks the pick.
+//
+// Returns { outcome: "already" | "by-id" | "auto" | "manual" | "unresolved",
+// chosen, companyId, typed, rule, reason, logo, count }. Throws FatalError
+// when a batch run can't go on.
 export async function searchCompany(
   name,
-  { log, fileLogo = null, csv = null, labeling = false, waitForManualChoice = false, onManualWait, shouldStop }
+  { log, companyId = null, fileLogo = null, csv = null, labeling = false, waitForManualChoice = false, onManualWait, shouldStop }
 ) {
-  const tab = await getSearchTab();
+  let tab = await getSearchTab();
   await sendToContent(tab.id, "ping");
+
+  if (companyId && !labeling) {
+    const result = await searchById(tab, name, companyId, log);
+    if (result) return result;
+    tab = await getSearchTab();
+  }
 
   const current = allCompanies(tab.url);
   if (!labeling && current.length === 1 && includedCompanies(tab.url)[0] === name) {
@@ -368,10 +511,19 @@ export async function searchCompany(
     const url = await selectOption(tab.id, choice.index, label, log);
     log.success(`Auto-selected "${label}" for "${name}"${typedNote}: ${choice.description}`);
 
-    const companyId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
+    const chosenId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
+    checkFileCompanyId(companyId, chosenId, label, log);
     const count = await waitForResults(tab.id, log);
-    await saveRecord(MATCH_KINDS.AUTO, { ...recordBase, mode: MATCH_MODES.AUTO, chosen: label, companyId, leads: count }, log);
-    return { outcome: "auto", chosen: label, typed, rule: choice.rule, logo: { ...logoOf(choice.index), ...choice.logo }, count };
+    await saveRecord(MATCH_KINDS.AUTO, { ...recordBase, mode: MATCH_MODES.AUTO, chosen: label, companyId: chosenId, leads: count }, log);
+    return {
+      outcome: "auto",
+      chosen: label,
+      companyId: chosenId,
+      typed,
+      rule: choice.rule,
+      logo: { ...logoOf(choice.index), ...choice.logo },
+      count,
+    };
   }
 
   if (labeling) {
@@ -408,9 +560,10 @@ export async function searchCompany(
 
   const picked = getFilterValues(url, COMPANY);
   const chosen = picked.map((value) => value.text).join(", ");
-  const companyId = picked.map((value) => companyIdFromUrn(value.id)).filter(Boolean).join(", ") || null;
+  const pickedId = picked.map((value) => companyIdFromUrn(value.id)).filter(Boolean).join(", ") || null;
   const chosenIndex = options.indexOf(chosen);
   log.success(`Manually selected "${chosen}" for "${name}"${typedNote}`);
+  checkFileCompanyId(companyId, pickedId, chosen, log);
   if (labeling) {
     const agreed = recordBase.prediction.index === chosenIndex;
     log[agreed ? "success" : "warn"](
@@ -426,12 +579,12 @@ export async function searchCompany(
       ...recordBase,
       mode: labeling ? MATCH_MODES.LABELING : MATCH_MODES.FALLBACK,
       chosen,
-      companyId,
+      companyId: pickedId,
       leads: count,
       pickMs,
     },
     log
   );
   const pickedLogo = chosenIndex === -1 ? {} : logoOf(chosenIndex);
-  return { outcome: "manual", chosen, typed, logo: { ...pickedLogo, verdict: "picked by hand" }, count };
+  return { outcome: "manual", chosen, companyId: pickedId, typed, logo: { ...pickedLogo, verdict: "picked by hand" }, count };
 }

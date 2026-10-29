@@ -5,7 +5,13 @@
   "description": "Side panel that prioritizes job titles and runs company-by-company searches on LinkedIn Sales Navigator people search.",
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage"],
-  "host_permissions": ["https://www.linkedin.com/sales/*", "https://media.licdn.com/*"],
+  "host_permissions": [
+    "https://www.linkedin.com/sales/*",
+    "https://www.linkedin.com/company/*",
+    "https://www.linkedin.com/showcase/*",
+    "https://www.linkedin.com/school/*",
+    "https://media.licdn.com/*"
+  ],
   "icons": {
     "16": "assets/icons/logo-16.png",
     "32": "assets/icons/logo-32.png",
