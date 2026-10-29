@@ -13,7 +13,7 @@ import { normalizeName } from "./text-utils.js";
 export const COLUMNS = ["management", "technical"];
 export const POOL = "pool";
 
-const DEFAULT_LIMITS = { min: 0, max: 100, default: 1 };
+const DEFAULT_LIMITS = { min: 0, max: 9, default: 1 };
 
 export function createEmptyBoard() {
   return { management: [], technical: [], manual: [] };

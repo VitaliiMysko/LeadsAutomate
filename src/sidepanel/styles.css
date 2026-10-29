@@ -428,7 +428,7 @@ h2 {
 
 /* Next to an entry's lead count, not over it. */
 .entry-count + .rank-item__actions {
-  right: 48px;
+  right: 42px;
 }
 
 .rank-item:hover > .rank-item__actions,
@@ -441,7 +441,7 @@ h2 {
 /* Lead count of a title or a group. */
 .rank-list input.entry-count {
   flex: none;
-  width: 40px;
+  width: 34px;
   padding: 1px 3px;
   font-size: 11.5px;
 }
@@ -886,7 +886,7 @@ input[readonly] {
 
 .current-logo__img {
   flex: none;
-  width: 40px;
+  width: 34px;
   height: 40px;
   object-fit: contain;
   padding: 2px;

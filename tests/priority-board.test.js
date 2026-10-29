@@ -148,7 +148,7 @@ describe("groups", () => {
 
   test("setEntryCount clamps the count of a title or group", () => {
     expect(setEntryCount(grouped, "management", 1, "7").management[1].count).toBe(7);
-    expect(setEntryCount(grouped, "management", 0, "500").management[0].count).toBe(100);
+    expect(setEntryCount(grouped, "management", 0, "500").management[0].count).toBe(9);
     expect(setEntryCount(grouped, "management", 0, "abc").management[0].count).toBe(1);
     expect(setEntryCount(grouped, "management", 9, 3)).toBe(grouped);
   });
@@ -186,7 +186,7 @@ describe("sanitizeBoard", () => {
       ],
     };
     expect(sanitizeBoard(raw)).toEqual({
-      management: [{ id: "g1", name: "", titles: ["Founder"], count: 100 }],
+      management: [{ id: "g1", name: "", titles: ["Founder"], count: 9 }],
       technical: [
         { id: "g2", name: "QA", titles: ["QA"], count: 2 },
         { id: "g3", name: "", titles: ["Tester"], count: 1 },
