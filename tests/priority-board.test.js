@@ -3,48 +3,92 @@ import {
   sanitizeBoard,
   getPool,
   moveTitle,
+  moveTitleToGroup,
+  moveGroup,
+  groupWithAbove,
+  ungroup,
+  setEntryCount,
+  renameGroup,
   findColumn,
+  findGroup,
+  columnTitles,
   isManualTitle,
   addTitle,
-  getPriorityWeights,
+  clampCount,
+  getColumnPlan,
   POOL,
 } from "../src/utils/priority-board.js";
 
-const board = { management: ["CEO", "CTO"], technical: ["Architect"], manual: [] };
+const single = (title, count = 1) => ({ title, count });
+
+const board = {
+  management: [single("CEO"), single("CTO", 2)],
+  technical: [single("Architect")],
+  manual: [],
+};
+
+// Management: CEO, [Founder, Gründer] (3 leads), CTO
+const grouped = {
+  management: [single("CEO"), { id: "g1", name: "Founders", titles: ["Founder", "Gründer"], count: 3 }, single("CTO")],
+  technical: [{ id: "g2", name: "", titles: ["QA"], count: 1 }],
+  manual: ["Gründer"],
+};
 
 describe("getPool", () => {
   test("lists filter titles not placed in any column, in filter order", () => {
     expect(getPool(board, ["Developer", "CTO", "Architect", "QA"])).toEqual(["Developer", "QA"]);
   });
+
+  test("titles inside groups count as placed", () => {
+    expect(getPool(grouped, ["Founder", "QA", "Developer"])).toEqual(["Developer"]);
+  });
 });
 
 describe("moveTitle", () => {
-  test("adds a pool title at the given index", () => {
-    expect(moveTitle(board, "VP", "management", 1).management).toEqual(["CEO", "VP", "CTO"]);
+  test("adds a pool title at the given index with the default count", () => {
+    expect(moveTitle(board, "VP", "management", 1).management).toEqual([single("CEO"), single("VP"), single("CTO", 2)]);
   });
 
   test("appends when no index is given and clamps out-of-range indexes", () => {
-    expect(moveTitle(board, "VP", "technical").technical).toEqual(["Architect", "VP"]);
-    expect(moveTitle(board, "VP", "technical", 99).technical).toEqual(["Architect", "VP"]);
-    expect(moveTitle(board, "VP", "technical", -3).technical).toEqual(["VP", "Architect"]);
+    expect(columnTitles(moveTitle(board, "VP", "technical"), "technical")).toEqual(["Architect", "VP"]);
+    expect(columnTitles(moveTitle(board, "VP", "technical", 99), "technical")).toEqual(["Architect", "VP"]);
+    expect(columnTitles(moveTitle(board, "VP", "technical", -3), "technical")).toEqual(["VP", "Architect"]);
   });
 
-  test("reorders within a column", () => {
-    expect(moveTitle(board, "CTO", "management", 0).management).toEqual(["CTO", "CEO"]);
+  test("reorders within a column and keeps the title's count", () => {
+    expect(moveTitle(board, "CTO", "management", 0).management).toEqual([single("CTO", 2), single("CEO")]);
   });
 
   test("moves between columns", () => {
     const next = moveTitle(board, "CTO", "technical", 0);
-    expect(next).toEqual({ management: ["CEO"], technical: ["CTO", "Architect"], manual: [] });
+    expect(next).toEqual({ management: [single("CEO")], technical: [single("CTO", 2), single("Architect")], manual: [] });
   });
 
   test("returns a title to the pool", () => {
-    expect(moveTitle(board, "CEO", POOL)).toEqual({ management: ["CTO"], technical: ["Architect"], manual: [] });
+    expect(moveTitle(board, "CEO", POOL)).toEqual({
+      management: [single("CTO", 2)],
+      technical: [single("Architect")],
+      manual: [],
+    });
+  });
+
+  test("takes a title out of a group as a single title with the default count", () => {
+    const next = moveTitle(grouped, "Founder", "management", 3);
+    expect(next.management[1].titles).toEqual(["Gründer"]);
+    expect(next.management[3]).toEqual(single("Founder"));
+  });
+
+  test("removes a group left empty and shifts the drop index past it", () => {
+    // Technical shows [QA group]; dropping its only title below it (index 1).
+    const next = moveTitle(grouped, "QA", "technical", 1);
+    expect(next.technical).toEqual([single("QA")]);
   });
 
   test("does not mutate the input board", () => {
-    moveTitle(board, "CEO", "technical", 0);
-    expect(board).toEqual({ management: ["CEO", "CTO"], technical: ["Architect"], manual: [] });
+    const before = JSON.parse(JSON.stringify(grouped));
+    moveTitle(grouped, "Founder", "technical", 0);
+    moveTitle(grouped, "CEO", POOL);
+    expect(grouped).toEqual(before);
   });
 
   test("rejects unknown columns", () => {
@@ -52,22 +96,110 @@ describe("moveTitle", () => {
   });
 });
 
-describe("sanitizeBoard", () => {
-  test("drops non-strings, duplicates and unknown keys", () => {
-    expect(sanitizeBoard({ management: ["CEO", 5, "CEO"], technical: ["CEO", "QA"], other: ["x"] })).toEqual({
-      management: ["CEO"],
-      technical: ["QA"],
-      manual: [],
+describe("groups", () => {
+  test("groupWithAbove turns a single title above into a group that keeps its count", () => {
+    const next = groupWithAbove(board, "management", 1);
+    expect(next.management).toEqual([{ id: "g1", name: "", titles: ["CEO", "CTO"], count: 1 }]);
+  });
+
+  test("groupWithAbove adds the titles to a group above, and joins two groups", () => {
+    expect(groupWithAbove(grouped, "management", 2).management[1].titles).toEqual(["Founder", "Gründer", "CTO"]);
+    const twoGroups = moveGroup(grouped, "g2", "management", 2);
+    expect(groupWithAbove(twoGroups, "management", 2).management[1]).toEqual({
+      id: "g1",
+      name: "Founders",
+      titles: ["Founder", "Gründer", "QA"],
+      count: 3,
     });
+  });
+
+  test("groupWithAbove ignores the first entry and gives new groups unused ids", () => {
+    expect(groupWithAbove(board, "management", 0)).toBe(board);
+    expect(groupWithAbove(grouped, "management", 1).management[0].id).toBe("g3");
+  });
+
+  test("moveTitleToGroup inserts or reorders inside a group", () => {
+    expect(findGroup(moveTitleToGroup(grouped, "CEO", "g1", 0), "g1").group.titles).toEqual(["CEO", "Founder", "Gründer"]);
+    expect(moveTitleToGroup(grouped, "CEO", "g1", 0).management).toHaveLength(2);
+    expect(findGroup(moveTitleToGroup(grouped, "Gründer", "g1", 0), "g1").group.titles).toEqual(["Gründer", "Founder"]);
+    expect(findGroup(moveTitleToGroup(grouped, "Architect", "g2"), "g2").group.titles).toEqual(["QA", "Architect"]);
+  });
+
+  test("moveTitleToGroup leaves the board unchanged when the group disappears", () => {
+    expect(moveTitleToGroup(grouped, "QA", "g2", 0)).toBe(grouped);
+  });
+
+  test("moveGroup moves a whole group between columns", () => {
+    const next = moveGroup(grouped, "g1", "technical", 0);
+    expect(columnTitles(next, "management")).toEqual(["CEO", "CTO"]);
+    expect(next.technical[0]).toEqual(grouped.management[1]);
+  });
+
+  test("moveGroup to the pool returns its titles and drops the manual ones", () => {
+    const next = moveGroup(grouped, "g1", POOL);
+    expect(columnTitles(next, "management")).toEqual(["CEO", "CTO"]);
+    expect(next.manual).toEqual([]);
+    expect(getPool(next, ["Founder", "CEO"])).toEqual(["Founder"]);
+  });
+
+  test("ungroup splits a group into single titles in its place", () => {
+    expect(ungroup(grouped, "g1").management).toEqual([single("CEO"), single("Founder"), single("Gründer"), single("CTO")]);
+  });
+
+  test("setEntryCount clamps the count of a title or group", () => {
+    expect(setEntryCount(grouped, "management", 1, "7").management[1].count).toBe(7);
+    expect(setEntryCount(grouped, "management", 0, "500").management[0].count).toBe(100);
+    expect(setEntryCount(grouped, "management", 0, "abc").management[0].count).toBe(1);
+    expect(setEntryCount(grouped, "management", 9, 3)).toBe(grouped);
+  });
+
+  test("renameGroup trims the name", () => {
+    expect(findGroup(renameGroup(grouped, "g2", "  Quality   assurance "), "g2").group.name).toBe("Quality assurance");
+  });
+});
+
+describe("sanitizeBoard", () => {
+  test("converts the old format (plain title lists) to single titles with the default count", () => {
+    expect(sanitizeBoard({ management: ["CEO", "CTO"], technical: ["QA"], manual: ["QA"] })).toEqual({
+      management: [single("CEO"), single("CTO")],
+      technical: [single("QA")],
+      manual: ["QA"],
+    });
+  });
+
+  test("drops non-strings, duplicates, empty groups and unknown keys", () => {
+    const raw = {
+      management: ["CEO", 5, single("CEO"), { id: "g1", titles: ["CEO", 3], count: 2 }],
+      technical: [{ title: "QA", count: 4 }],
+      other: ["x"],
+    };
+    expect(sanitizeBoard(raw)).toEqual({ management: [single("CEO")], technical: [single("QA", 4)], manual: [] });
     expect(sanitizeBoard(null)).toEqual(createEmptyBoard());
   });
 
-  test("keeps only manual titles that are still in a column", () => {
-    expect(sanitizeBoard({ management: ["CEO"], technical: ["Hand-made"], manual: ["Hand-made", "Gone", 7] })).toEqual({
-      management: ["CEO"],
-      technical: ["Hand-made"],
-      manual: ["Hand-made"],
+  test("keeps groups, clamps counts and gives missing or repeated ids new ones", () => {
+    const raw = {
+      management: [{ id: "g1", name: 7, titles: ["Founder"], count: 300 }],
+      technical: [
+        { id: "g1", name: " QA ", titles: ["QA"], count: "2" },
+        { titles: ["Tester"] },
+      ],
+    };
+    expect(sanitizeBoard(raw)).toEqual({
+      management: [{ id: "g1", name: "", titles: ["Founder"], count: 100 }],
+      technical: [
+        { id: "g2", name: "QA", titles: ["QA"], count: 2 },
+        { id: "g3", name: "", titles: ["Tester"], count: 1 },
+      ],
+      manual: [],
     });
+  });
+
+  test("keeps only manual titles that are still in a column", () => {
+    expect(
+      sanitizeBoard({ management: ["CEO"], technical: [{ id: "g1", titles: ["Hand-made"], count: 1 }], manual: ["Hand-made", "Gone", 7] })
+        .manual
+    ).toEqual(["Hand-made"]);
   });
 });
 
@@ -78,7 +210,7 @@ describe("addTitle", () => {
     const { board: next, title, outcome } = addTitle(board, "  Head   of  QA ", "technical", filterTitles);
     expect(outcome).toBe("added");
     expect(title).toBe("Head of QA");
-    expect(next.technical).toEqual(["Architect", "Head of QA"]);
+    expect(next.technical).toEqual([single("Architect"), single("Head of QA")]);
     expect(isManualTitle(next, "Head of QA")).toBe(true);
   });
 
@@ -86,26 +218,31 @@ describe("addTitle", () => {
     const { board: next, title, outcome } = addTitle(board, "chief technology officer", "management", filterTitles);
     expect(outcome).toBe("placed");
     expect(title).toBe("Chief Technology Officer");
-    expect(next.management).toEqual(["CEO", "CTO", "Chief Technology Officer"]);
+    expect(columnTitles(next, "management")).toEqual(["CEO", "CTO", "Chief Technology Officer"]);
     expect(next.manual).toEqual([]);
   });
 
-  test("moves a title already in the other column", () => {
+  test("moves a title already in the other column, also out of a group", () => {
     const { board: next, outcome } = addTitle(board, "architect", "management", filterTitles);
     expect(outcome).toBe("moved");
-    expect(next).toEqual({ management: ["CEO", "CTO", "Architect"], technical: [], manual: [] });
+    expect(next).toEqual({ management: [single("CEO"), single("CTO", 2), single("Architect")], technical: [], manual: [] });
+
+    const fromGroup = addTitle(grouped, "qa", "management");
+    expect(fromGroup.outcome).toBe("moved");
+    expect(fromGroup.board.technical).toEqual([]);
   });
 
-  test("leaves the board unchanged for a title already in the column or empty input", () => {
+  test("leaves the board unchanged for a title already in the column (also in a group) or empty input", () => {
     expect(addTitle(board, "cto", "management").outcome).toBe("exists");
     expect(addTitle(board, "cto", "management").board).toBe(board);
+    expect(addTitle(grouped, "GRÜNDER", "management").outcome).toBe("exists");
     expect(addTitle(board, "   ", "management").outcome).toBe("empty");
   });
 
   test("a manual title moved between columns stays manual; sent to the pool it's dropped", () => {
     const { board: withManual } = addTitle(board, "Head of QA", "technical");
     const moved = moveTitle(withManual, "Head of QA", "management", 0);
-    expect(moved.management[0]).toBe("Head of QA");
+    expect(moved.management[0]).toEqual(single("Head of QA"));
     expect(isManualTitle(moved, "Head of QA")).toBe(true);
 
     const removed = moveTitle(moved, "Head of QA", POOL);
@@ -119,17 +256,32 @@ describe("addTitle", () => {
   });
 });
 
-describe("findColumn / getPriorityWeights", () => {
-  test("finds a title's column", () => {
+describe("findColumn / clampCount / getColumnPlan", () => {
+  test("finds a title's column, also inside a group", () => {
     expect(findColumn(board, "Architect")).toBe("technical");
+    expect(findColumn(grouped, "Gründer")).toBe("management");
     expect(findColumn(board, "QA")).toBeNull();
   });
 
-  test("gives the first title the highest weight", () => {
-    expect(getPriorityWeights(["CEO", "CTO", "VP"])).toEqual([
-      { title: "CEO", weight: 3 },
-      { title: "CTO", weight: 2 },
-      { title: "VP", weight: 1 },
+  test("clamps to the limits and falls back to the default", () => {
+    const limits = { min: 0, max: 10, default: 1 };
+    expect(clampCount("4", limits)).toBe(4);
+    expect(clampCount(-2, limits)).toBe(0);
+    expect(clampCount(99, limits)).toBe(10);
+    expect(clampCount("", limits)).toBe(1);
+  });
+
+  test("lists the entries by priority with their titles and counts", () => {
+    const withUnnamed = groupWithAbove(grouped, "management", 1);
+    expect(getColumnPlan(grouped, "management")).toEqual([
+      { name: "CEO", titles: ["CEO"], count: 1 },
+      { name: "Founders", titles: ["Founder", "Gründer"], count: 3 },
+      { name: "CTO", titles: ["CTO"], count: 1 },
     ]);
+    expect(getColumnPlan(withUnnamed, "management")[0]).toEqual({
+      name: "CEO / Founder / Gründer",
+      titles: ["CEO", "Founder", "Gründer"],
+      count: 1,
+    });
   });
 });

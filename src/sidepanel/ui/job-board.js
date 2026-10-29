@@ -5,8 +5,18 @@ import {
   sanitizeBoard,
   getPool,
   moveTitle,
+  moveTitleToGroup,
+  moveGroup,
+  groupWithAbove,
+  ungroup,
+  setEntryCount,
+  renameGroup,
   addTitle,
   isManualTitle,
+  isGroup,
+  columnTitles,
+  clampCount,
+  getColumnPlan,
 } from "../../utils/priority-board.js";
 import { LEADS_COUNT, STORAGE_KEYS } from "../../constants/config.js";
 import { loadValue, saveValue } from "../store/storage.js";
@@ -14,20 +24,23 @@ import { log } from "./log.js";
 
 // "Job list" (titles from the Sales Navigator "Current job title" filter)
 // and the Management / Technical priority columns, filled by drag and drop.
+// A column holds single titles and groups of titles, each with its own
+// lead count.
 let board = createEmptyBoard();
 let leadsCount = { management: LEADS_COUNT.default, technical: LEADS_COUNT.default };
 let filterTitles = [];
 let filterTitlesKnown = false;
 let elements = null;
-let draggedTitle = null;
+// { title } or { group } while something is dragged.
+let dragged = null;
 let dropIndicator = null;
 
 function persistBoard() {
   saveValue(STORAGE_KEYS.board, board);
 }
 
-function applyMove(title, target, index) {
-  board = moveTitle(board, title, target, index);
+function applyBoard(next) {
+  board = next;
   persistBoard();
   render();
 }
@@ -54,13 +67,42 @@ function createIconButton(label, symbol, onClick, disabled = false) {
   return button;
 }
 
-function createRankItem(column, title, index) {
-  const columnTitles = board[column];
-  const item = document.createElement("li");
-  item.className = "rank-item";
-  item.draggable = true;
-  item.dataset.title = title;
+function createActions(...buttons) {
+  const actions = document.createElement("span");
+  actions.className = "rank-item__actions";
+  actions.append(...buttons);
+  return actions;
+}
 
+function createRank(index) {
+  const rank = document.createElement("span");
+  rank.className = "rank-item__rank";
+  rank.textContent = index + 1;
+  return rank;
+}
+
+// Lead count of one entry. Saved without re-rendering, so the spin buttons
+// keep working while clicked repeatedly.
+function createCountInput(column, index, label) {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.className = "entry-count";
+  input.min = LEADS_COUNT.min;
+  input.max = LEADS_COUNT.max;
+  input.value = board[column][index].count;
+  input.title = label;
+  input.setAttribute("aria-label", label);
+  input.addEventListener("change", () => {
+    board = setEntryCount(board, column, index, input.value, LEADS_COUNT);
+    input.value = board[column][index].count;
+    persistBoard();
+  });
+  return input;
+}
+
+// Title text with the manual badge or the stale mark; shared by single
+// titles and the titles inside a group.
+function decorateTitle(item, title) {
   const isManual = isManualTitle(board, title);
   if (isManual) {
     item.classList.add("rank-item--manual");
@@ -70,30 +112,112 @@ function createRankItem(column, title, index) {
     item.title = "Not in the current Sales Navigator \"Current job title\" filter";
   }
 
-  const rank = document.createElement("span");
-  rank.className = "rank-item__rank";
-  rank.textContent = index + 1;
-
   const text = document.createElement("span");
   text.className = "rank-item__text";
   text.textContent = title;
-
-  const actions = document.createElement("span");
-  actions.className = "rank-item__actions";
-  actions.append(
-    createIconButton("Move up", "↑", () => applyMove(title, column, index - 1), index === 0),
-    createIconButton("Move down", "↓", () => applyMove(title, column, index + 1), index === columnTitles.length - 1),
-    createIconButton(isManual ? "Remove" : "Back to Job list", "×", () => applyMove(title, POOL))
-  );
-
-  item.append(rank, text);
+  item.append(text);
   if (isManual) {
     const badge = document.createElement("span");
     badge.className = "rank-item__badge";
     badge.textContent = "manual";
     item.append(badge);
   }
-  item.append(actions);
+  return isManual;
+}
+
+function createSingleItem(column, entry, index) {
+  const { title } = entry;
+  const item = document.createElement("li");
+  item.className = "rank-item";
+  item.draggable = true;
+  item.dataset.title = title;
+
+  item.append(createRank(index));
+  const isManual = decorateTitle(item, title);
+  item.append(
+    createCountInput(column, index, `Leads to take with the title "${title}"`),
+    createActions(
+      createIconButton("Move up", "↑", () => applyBoard(moveTitle(board, title, column, index - 1)), index === 0),
+      createIconButton(
+        "Move down",
+        "↓",
+        () => applyBoard(moveTitle(board, title, column, index + 1)),
+        index === board[column].length - 1
+      ),
+      createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
+      createIconButton(isManual ? "Remove" : "Back to Job list", "×", () => applyBoard(moveTitle(board, title, POOL)))
+    )
+  );
+  return item;
+}
+
+function createGroupTitle(column, group, title, position) {
+  const item = document.createElement("li");
+  item.className = "rank-item rank-item--sub";
+  item.draggable = true;
+  item.dataset.title = title;
+  decorateTitle(item, title);
+
+  const groupIndex = board[column].indexOf(group);
+  item.append(
+    createActions(
+      createIconButton("Move up in the group", "↑", () => applyBoard(moveTitleToGroup(board, title, group.id, position - 1)), position === 0),
+      createIconButton(
+        "Move down in the group",
+        "↓",
+        () => applyBoard(moveTitleToGroup(board, title, group.id, position + 1)),
+        position === group.titles.length - 1
+      ),
+      createIconButton("Take out of the group", "×", () => applyBoard(moveTitle(board, title, column, groupIndex + 1)))
+    )
+  );
+  return item;
+}
+
+function createGroupItem(column, group, index) {
+  const item = document.createElement("li");
+  item.className = "rank-group";
+  item.draggable = true;
+  item.dataset.group = group.id;
+
+  const head = document.createElement("div");
+  head.className = "rank-group__head";
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.className = "rank-group__name";
+  name.placeholder = `Group of ${group.titles.length}`;
+  name.value = group.name;
+  name.setAttribute("aria-label", "Group name");
+  name.addEventListener("change", () => {
+    board = renameGroup(board, group.id, name.value);
+    name.value = board[column][index].name;
+    persistBoard();
+  });
+
+  head.append(
+    createRank(index),
+    name,
+    createCountInput(column, index, "Leads to take with any of the group's titles"),
+    createActions(
+      createIconButton("Move up", "↑", () => applyBoard(moveGroup(board, group.id, column, index - 1)), index === 0),
+      createIconButton(
+        "Move down",
+        "↓",
+        () => applyBoard(moveGroup(board, group.id, column, index + 1)),
+        index === board[column].length - 1
+      ),
+      createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
+      createIconButton("Ungroup", "✂", () => applyBoard(ungroup(board, group.id, LEADS_COUNT)))
+    )
+  );
+
+  const list = document.createElement("ul");
+  list.className = "rank-group__list";
+  list.dataset.groupList = group.id;
+  list.append(...group.titles.map((title, position) => createGroupTitle(column, group, title, position)));
+
+  item.append(head, list);
   return item;
 }
 
@@ -111,16 +235,14 @@ function initAddForms() {
     const input = form.querySelector("input");
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      const result = addTitle(board, input.value, column, filterTitles);
+      const result = addTitle(board, input.value, column, filterTitles, LEADS_COUNT);
       if (result.outcome === "empty") return;
       if (result.outcome === "exists") {
         log.warn(`"${result.title}" is already in ${column}`);
         input.select();
         return;
       }
-      board = result.board;
-      persistBoard();
-      render();
+      applyBoard(result.board);
       // Added at the end of a column that may be scrolled: bring it into view.
       const list = elements.columns[column];
       list.scrollTop = list.scrollHeight;
@@ -141,11 +263,13 @@ function render() {
   // Shown in the section header, so the counts stay visible when it's collapsed.
   elements.sectionSummary.textContent =
     (filterTitlesKnown ? `${filterTitles.length} in filter · ` : "") +
-    `Management ${board.management.length} · Technical ${board.technical.length}`;
+    `Management ${columnTitles(board, "management").length} · Technical ${columnTitles(board, "technical").length}`;
 
   for (const column of COLUMNS) {
     const list = elements.columns[column];
-    const items = board[column].map((title, index) => createRankItem(column, title, index));
+    const items = board[column].map((entry, index) =>
+      isGroup(entry) ? createGroupItem(column, entry, index) : createSingleItem(column, entry, index)
+    );
     if (!items.length) {
       const placeholder = document.createElement("li");
       placeholder.className = "rank-list__placeholder";
@@ -158,8 +282,16 @@ function render() {
 
 // --- drag and drop ---------------------------------------------------------
 
+function isDraggedElement(element) {
+  return dragged.title ? element.dataset.title === dragged.title : element.dataset.group === dragged.group;
+}
+
+// Position among the list's own items (a column's entries or a group's
+// titles), the dragged one left out.
 function getDropIndex(list, clientY) {
-  const items = [...list.querySelectorAll(".rank-item")].filter((item) => item.dataset.title !== draggedTitle);
+  const items = [...list.children].filter(
+    (element) => element.matches(".rank-item, .rank-group") && !isDraggedElement(element)
+  );
   const index = items.findIndex((item) => {
     const rect = item.getBoundingClientRect();
     return clientY < rect.top + rect.height / 2;
@@ -172,62 +304,94 @@ function clearDropFeedback() {
   document.querySelectorAll(".drop-zone--over").forEach((zone) => zone.classList.remove("drop-zone--over"));
 }
 
+function markDropZone(zone) {
+  document.querySelectorAll(".drop-zone--over").forEach((other) => other !== zone && other.classList.remove("drop-zone--over"));
+  zone.classList.add("drop-zone--over");
+}
+
+// A title dropped on a group's titles joins the group; anything else dropped
+// on a column becomes one of its entries.
+function getColumnDropTarget(columnList, event) {
+  const groupList = dragged.title ? event.target.closest?.("[data-group-list]") : null;
+  return groupList && columnList.contains(groupList) ? groupList : columnList;
+}
+
+function dropOn(target, list, index) {
+  const groupId = list.dataset.groupList;
+  if (groupId) return moveTitleToGroup(board, dragged.title, groupId, index);
+  if (dragged.group) return moveGroup(board, dragged.group, target, index);
+  return moveTitle(board, dragged.title, target, index, LEADS_COUNT);
+}
+
 function initDropZone(zone, target) {
   zone.addEventListener("dragover", (event) => {
-    if (!draggedTitle) return;
+    if (!dragged) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
-    zone.classList.add("drop-zone--over");
-    if (target === POOL) return;
+    if (target === POOL) {
+      markDropZone(zone);
+      return;
+    }
 
-    const { before } = getDropIndex(zone, event.clientY);
+    const list = getColumnDropTarget(zone, event);
+    markDropZone(list);
+    const { before } = getDropIndex(list, event.clientY);
     if (!dropIndicator) {
       dropIndicator = document.createElement("li");
       dropIndicator.className = "drop-indicator";
     }
-    zone.insertBefore(dropIndicator, before);
+    if (dropIndicator.parentElement !== list || dropIndicator.nextSibling !== before) list.insertBefore(dropIndicator, before);
   });
 
   zone.addEventListener("dragleave", (event) => {
     if (zone.contains(event.relatedTarget)) return;
-    zone.classList.remove("drop-zone--over");
-    if (dropIndicator?.parentElement === zone) dropIndicator.remove();
+    clearDropFeedback();
   });
 
   zone.addEventListener("drop", (event) => {
-    if (!draggedTitle) return;
+    if (!dragged) return;
     event.preventDefault();
-    const index = target === POOL ? undefined : getDropIndex(zone, event.clientY).index;
-    const title = draggedTitle;
+    let next;
+    if (target === POOL) {
+      next = dragged.group ? moveGroup(board, dragged.group, POOL) : moveTitle(board, dragged.title, POOL);
+    } else {
+      const list = getColumnDropTarget(zone, event);
+      dropIndicator?.remove();
+      next = dropOn(target, list, getDropIndex(list, event.clientY).index);
+    }
     clearDropFeedback();
-    applyMove(title, target, index);
+    applyBoard(next);
   });
 }
 
 function initDragSources(container) {
   container.addEventListener("dragstart", (event) => {
-    const source = event.target.closest("[data-title]");
+    const source = event.target.closest?.("[data-title], [data-group]");
     if (!source) return;
-    draggedTitle = source.dataset.title;
+    dragged = source.dataset.title ? { title: source.dataset.title } : { group: source.dataset.group };
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", draggedTitle);
+    event.dataTransfer.setData("text/plain", dragged.title ?? source.querySelector(".rank-group__name")?.value ?? "");
     requestAnimationFrame(() => source.classList.add("dragging"));
   });
 
   container.addEventListener("dragend", (event) => {
-    event.target.closest?.("[data-title]")?.classList.remove("dragging");
-    draggedTitle = null;
+    event.target.closest?.("[data-title], [data-group]")?.classList.remove("dragging");
+    dragged = null;
     clearDropFeedback();
+  });
+
+  // Inputs inside a draggable item: selecting their text with the mouse
+  // would drag the item instead.
+  container.addEventListener("pointerdown", (event) => {
+    if (!event.target.matches("input")) return;
+    const item = event.target.closest("[draggable='true']");
+    if (!item) return;
+    item.draggable = false;
+    document.addEventListener("pointerup", () => (item.draggable = true), { once: true });
   });
 }
 
 // --- leads count -----------------------------------------------------------
-
-function clampCount(value) {
-  const number = Number.parseInt(value, 10);
-  if (!Number.isFinite(number)) return LEADS_COUNT.default;
-  return Math.min(Math.max(number, LEADS_COUNT.min), LEADS_COUNT.max);
-}
 
 function initCountInputs() {
   for (const column of COLUMNS) {
@@ -236,7 +400,7 @@ function initCountInputs() {
     input.max = LEADS_COUNT.max;
     input.value = leadsCount[column];
     input.addEventListener("change", () => {
-      leadsCount = { ...leadsCount, [column]: clampCount(input.value) };
+      leadsCount = { ...leadsCount, [column]: clampCount(input.value, LEADS_COUNT) };
       input.value = leadsCount[column];
       saveValue(STORAGE_KEYS.leadsCount, leadsCount);
     });
@@ -247,11 +411,11 @@ function initCountInputs() {
 
 export async function initJobBoard(boardElements) {
   elements = boardElements;
-  board = sanitizeBoard(await loadValue(STORAGE_KEYS.board, createEmptyBoard()));
+  board = sanitizeBoard(await loadValue(STORAGE_KEYS.board, createEmptyBoard()), LEADS_COUNT);
   const storedCount = await loadValue(STORAGE_KEYS.leadsCount, {});
   leadsCount = {
-    management: clampCount(storedCount.management ?? LEADS_COUNT.default),
-    technical: clampCount(storedCount.technical ?? LEADS_COUNT.default),
+    management: clampCount(storedCount.management ?? LEADS_COUNT.default, LEADS_COUNT),
+    technical: clampCount(storedCount.technical ?? LEADS_COUNT.default, LEADS_COUNT),
   };
 
   // The section (Job list + columns) collapses on a header click; the
@@ -275,11 +439,12 @@ export function setFilterTitles(titles, message = "") {
   render();
 }
 
-// Snapshot for the search logic (priorities and wanted lead counts).
+// Snapshot for the search logic: per column, the entries by priority
+// ([{ name, titles, count }]) and the wanted lead count.
 export function getJobPriorities() {
   return {
-    management: [...board.management],
-    technical: [...board.technical],
+    management: getColumnPlan(board, "management"),
+    technical: getColumnPlan(board, "technical"),
     leadsCount: { ...leadsCount },
   };
 }
