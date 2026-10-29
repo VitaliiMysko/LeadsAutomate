@@ -244,9 +244,9 @@ function initAddForms() {
         return;
       }
       applyBoard(result.board);
-      // Added at the end of a column that may be scrolled: bring it into view.
+      // Added at the end of the column, maybe below the visible part of the panel.
       const list = elements.columns[column];
-      list.scrollTop = list.scrollHeight;
+      list.lastElementChild?.scrollIntoView({ block: "nearest" });
       input.value = "";
       log.info(ADD_OUTCOME_MESSAGES[result.outcome](result.title, column));
     });
