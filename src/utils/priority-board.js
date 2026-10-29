@@ -278,3 +278,8 @@ export function getColumnPlan(board, column) {
     count: entry.count,
   }));
 }
+
+// A search needs at least one title or group in either column.
+export function hasJobTitles(board) {
+  return COLUMNS.some((column) => board[column].length > 0);
+}

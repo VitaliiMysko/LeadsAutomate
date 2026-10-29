@@ -16,6 +16,7 @@ import {
   addTitle,
   clampCount,
   getColumnPlan,
+  hasJobTitles,
   POOL,
 } from "../src/utils/priority-board.js";
 
@@ -283,5 +284,13 @@ describe("findColumn / clampCount / getColumnPlan", () => {
       titles: ["CEO", "Founder", "Gründer"],
       count: 1,
     });
+  });
+});
+
+describe("hasJobTitles", () => {
+  test("is false only when both columns are empty", () => {
+    expect(hasJobTitles(createEmptyBoard())).toBe(false);
+    expect(hasJobTitles({ management: [], technical: [single("QA")], manual: [] })).toBe(true);
+    expect(hasJobTitles({ management: [{ id: "g1", name: "", titles: ["CEO"], count: 1 }], technical: [], manual: [] })).toBe(true);
   });
 });

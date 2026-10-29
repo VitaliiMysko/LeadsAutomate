@@ -17,6 +17,7 @@ import {
   columnTitles,
   clampCount,
   getColumnPlan,
+  hasJobTitles,
 } from "../../utils/priority-board.js";
 import { LEADS_COUNT, STORAGE_KEYS } from "../../constants/config.js";
 import { loadValue, saveValue } from "../store/storage.js";
@@ -447,4 +448,13 @@ export function getJobPriorities() {
     technical: getColumnPlan(board, "technical"),
     leadsCount: { ...leadsCount },
   };
+}
+
+// False when both columns are empty; the Job titles section is then opened
+// and shown, so the user sees where to add titles.
+export function ensureJobTitles() {
+  if (hasJobTitles(board)) return true;
+  elements.section.open = true;
+  elements.section.scrollIntoView({ behavior: "smooth", block: "start" });
+  return false;
 }
