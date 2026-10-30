@@ -92,6 +92,13 @@ if (!window.leadsAutomate.salesSearchInit) {
     return { present: values.filter((text) => !!findSelectedValue(fieldset, text).textElement) };
   }
 
+  // Texts of the values selected in the filter, as the page shows them.
+  async function selectedFilterTexts({ filterType }) {
+    const fieldset = getFilterFieldset(filterType);
+    const pills = [...fieldset.querySelectorAll(SELECTORS.filterSelectedValue.join(", "))].filter(outsideDropdown);
+    return { texts: pills.map((pill) => pill.getAttribute("title").replace(/\s+/g, " ").trim()) };
+  }
+
   // In-page (single-page-app) navigation to `url`: replaces the URL without
   // a reload and fires popstate, which Sales Navigator's router follows like
   // the browser's Back / Forward. undoInPageNavigation restores the previous
@@ -344,8 +351,6 @@ if (!window.leadsAutomate.salesSearchInit) {
       tenure: rowText(row, SELECTORS.leadTenure),
       href: link?.href || "",
       locked: !!queryFirst(row, SELECTORS.leadLocked),
-      // For finding the locked leads' marker when Sales Navigator changes it.
-      buttons: [...row.querySelectorAll("button")].map(describeElementDetailed),
     };
   }
 
@@ -431,6 +436,7 @@ if (!window.leadsAutomate.salesSearchInit) {
     selectSuggestion,
     inspectFilterValues,
     presentFilterValues,
+    selectedFilterTexts,
     navigateInPage,
     undoInPageNavigation,
     dismissSuggestions,

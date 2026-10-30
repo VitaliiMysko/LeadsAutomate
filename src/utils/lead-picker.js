@@ -40,34 +40,49 @@ export function canOpenLead(lead) {
   return !lead.locked && !!lead.href;
 }
 
-// Walks each column's entries from the highest priority down and takes the
-// leads whose title matches one of the entry's titles, in page order: up to
-// the entry's count, and until the column has its `leadsCount`. Management
-// is filled first; a lead is taken once, and one that can't be opened
-// (canOpenLead) never. Returns
-// { picks: [{ column, entry, lead }] in click order, columns: { [column]:
-// { wanted, found } } }.
-export function pickLeads(leads, plans, leadsCount) {
-  const taken = new Set();
-  const picks = [];
-  const columns = {};
+// Leads are tried one at a time, and only a lead that ends up saved counts
+// as found. `tried`: [{ index, column, entryIndex, saved }], the leads tried
+// so far for this results page.
+
+// Found (saved) leads per column: { [column]: { wanted, found } }.
+export function countFound(tried, leadsCount) {
+  return Object.fromEntries(
+    COLUMNS.map((column) => [
+      column,
+      {
+        wanted: leadsCount?.[column] ?? 0,
+        found: tried.filter((item) => item.column === column && item.saved).length,
+      },
+    ])
+  );
+}
+
+// The next lead to try: Management first, then Technical; in a column its
+// entries from the highest priority down, while the column has fewer found
+// leads than its `leadsCount` and the entry fewer than its own count; the
+// first lead in page order whose title matches one of the entry's titles.
+// A lead is tried once (saved or not), one that can't be opened
+// (canOpenLead) never. Returns { column, entryIndex, entry (its name), lead },
+// or null when there's nothing more to try.
+export function nextPick(leads, plans, leadsCount, tried = []) {
+  const triedIndexes = new Set(tried.map((item) => item.index));
+  const totals = countFound(tried, leadsCount);
 
   for (const column of COLUMNS) {
-    const wanted = leadsCount?.[column] ?? 0;
-    let found = 0;
-    for (const entry of plans?.[column] ?? []) {
-      if (found >= wanted) break;
-      let fromEntry = 0;
-      for (const lead of leads) {
-        if (found >= wanted || fromEntry >= entry.count) break;
-        if (taken.has(lead.index) || !canOpenLead(lead) || !entry.titles.some((title) => titleMatches(lead.title, title))) continue;
-        taken.add(lead.index);
-        picks.push({ column, entry: entry.name, lead });
-        fromEntry++;
-        found++;
-      }
+    if (totals[column].found >= totals[column].wanted) continue;
+    for (const [entryIndex, entry] of (plans?.[column] ?? []).entries()) {
+      const fromEntry = tried.filter(
+        (item) => item.column === column && item.entryIndex === entryIndex && item.saved
+      ).length;
+      if (fromEntry >= entry.count) continue;
+      const lead = leads.find(
+        (candidate) =>
+          !triedIndexes.has(candidate.index) &&
+          canOpenLead(candidate) &&
+          entry.titles.some((title) => titleMatches(candidate.title, title))
+      );
+      if (lead) return { column, entryIndex, entry: entry.name, lead };
     }
-    columns[column] = { wanted, found };
   }
-  return { picks, columns };
+  return null;
 }
