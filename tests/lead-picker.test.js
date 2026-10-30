@@ -1,4 +1,4 @@
-import { titleMatches, splitTitle, pickLeads, canOpenLead } from "../src/utils/lead-picker.js";
+import { titleMatches, splitTitle, nextPick, countFound, canOpenLead } from "../src/utils/lead-picker.js";
 
 const lead = (index, title, extra = {}) => ({
   index,
@@ -66,63 +66,89 @@ describe("titleMatches", () => {
   });
 });
 
-describe("pickLeads", () => {
+// Runs nextPick to the end, saving the leads whose index is in `saves`
+// (all when omitted). Returns { order: [[column, index]], tried }.
+function run(leads, plans, leadsCount, saves = null) {
+  const tried = [];
+  const order = [];
+  for (let pick; (pick = nextPick(leads, plans, leadsCount, tried)); ) {
+    order.push([pick.column, pick.lead.index]);
+    tried.push({ index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: !saves || saves.includes(pick.lead.index) });
+  }
+  return { order, tried };
+}
+const indexes = ({ order }) => order.map(([, index]) => index);
+
+describe("nextPick", () => {
   const leads = [lead(0, "Engineering Manager"), lead(1, "CTO"), lead(2, "CEO & Founder"), lead(3, "CTO"), lead(4, "COO")];
 
   test("takes leads by priority, not page order", () => {
     const plans = { management: [entry(["CEO"]), entry(["COO"])], technical: [] };
-    const { picks } = pickLeads(leads, plans, { management: 2, technical: 0 });
-    expect(picks.map((pick) => pick.lead.index)).toEqual([2, 4]);
-    expect(picks.map((pick) => pick.entry)).toEqual(["CEO", "COO"]);
+    expect(indexes(run(leads, plans, { management: 2, technical: 0 }))).toEqual([2, 4]);
+    expect(nextPick(leads, plans, { management: 2, technical: 0 }).entry).toBe("CEO");
   });
 
   test("stops a column at its leads count", () => {
     const plans = { management: [], technical: [entry(["CTO"], 5), entry(["Engineering Manager"])] };
-    const result = pickLeads(leads, plans, { management: 0, technical: 2 });
-    expect(result.picks.map((pick) => pick.lead.index)).toEqual([1, 3]);
-    expect(result.columns.technical).toEqual({ wanted: 2, found: 2 });
+    const result = run(leads, plans, { management: 0, technical: 2 });
+    expect(indexes(result)).toEqual([1, 3]);
+    expect(countFound(result.tried, { management: 0, technical: 2 }).technical).toEqual({ wanted: 2, found: 2 });
   });
 
   test("takes at most an entry's count, then goes to the next entry", () => {
     const plans = { management: [], technical: [entry(["CTO"], 1), entry(["Engineering Manager"])] };
-    const { picks } = pickLeads(leads, plans, { management: 0, technical: 3 });
-    expect(picks.map((pick) => pick.lead.index)).toEqual([1, 0]);
+    expect(indexes(run(leads, plans, { management: 0, technical: 3 }))).toEqual([1, 0]);
+  });
+
+  test("a lead not saved doesn't count: the entry tries its next lead", () => {
+    const plans = { management: [], technical: [entry(["CTO"], 1), entry(["Engineering Manager"])] };
+    const result = run(leads, plans, { management: 0, technical: 2 }, [3, 0]);
+    expect(indexes(result)).toEqual([1, 3, 0]);
+    expect(countFound(result.tried, { management: 0, technical: 2 }).technical).toEqual({ wanted: 2, found: 2 });
+  });
+
+  test("a column without enough savable leads ends short", () => {
+    const plans = { management: [entry(["CEO"], 2), entry(["COO"])], technical: [] };
+    const result = run(leads, plans, { management: 3, technical: 0 }, []);
+    expect(indexes(result)).toEqual([2, 4]);
+    expect(countFound(result.tried, { management: 3, technical: 0 }).management).toEqual({ wanted: 3, found: 0 });
   });
 
   test("a group takes leads of any of its titles, its count shared", () => {
     const plans = { management: [entry(["COO", "CEO"], 2, "Executives")], technical: [] };
-    const { picks } = pickLeads(leads, plans, { management: 9, technical: 0 });
-    expect(picks.map((pick) => pick.lead.index)).toEqual([2, 4]);
-    expect(picks.every((pick) => pick.entry === "Executives")).toBe(true);
+    expect(indexes(run(leads, plans, { management: 9, technical: 0 }))).toEqual([2, 4]);
   });
 
   test("an entry with count 0 is skipped", () => {
     const plans = { management: [entry(["CEO"], 0), entry(["COO"])], technical: [] };
-    const { picks } = pickLeads(leads, plans, { management: 2, technical: 0 });
-    expect(picks.map((pick) => pick.lead.index)).toEqual([4]);
+    expect(indexes(run(leads, plans, { management: 2, technical: 0 }))).toEqual([4]);
   });
 
-  test("management first; a lead is taken once", () => {
+  test("management first; a lead is tried once", () => {
     const plans = { management: [entry(["CTO"])], technical: [entry(["CTO"], 3)] };
-    const result = pickLeads(leads, plans, { management: 1, technical: 3 });
-    expect(result.picks.map((pick) => [pick.column, pick.lead.index])).toEqual([
+    expect(run(leads, plans, { management: 1, technical: 3 }).order).toEqual([
       ["management", 1],
       ["technical", 3],
     ]);
-    expect(result.columns).toEqual({ management: { wanted: 1, found: 1 }, technical: { wanted: 3, found: 1 } });
+  });
+
+  test("a lead not saved for management isn't tried again for technical", () => {
+    const plans = { management: [entry(["CTO"])], technical: [entry(["CTO"], 3)] };
+    expect(run(leads, plans, { management: 1, technical: 3 }, [3]).order).toEqual([
+      ["management", 1],
+      ["management", 3],
+    ]);
   });
 
   test("locked leads and leads without a link are never taken", () => {
     const withLocked = [lead(0, "CTO", { locked: true }), lead(1, "CTO", { href: "" }), lead(2, "CTO")];
     const plans = { management: [], technical: [entry(["CTO"], 3)] };
-    const result = pickLeads(withLocked, plans, { management: 0, technical: 3 });
-    expect(result.picks.map((pick) => pick.lead.index)).toEqual([2]);
-    expect(result.columns.technical).toEqual({ wanted: 3, found: 1 });
+    expect(indexes(run(withLocked, plans, { management: 0, technical: 3 }))).toEqual([2]);
   });
 
   test("a leads count of 0 takes nothing", () => {
     const plans = { management: [entry(["CEO"])], technical: [entry(["CTO"])] };
-    expect(pickLeads(leads, plans, { management: 0, technical: 0 }).picks).toEqual([]);
+    expect(nextPick(leads, plans, { management: 0, technical: 0 })).toBeNull();
   });
 });
 

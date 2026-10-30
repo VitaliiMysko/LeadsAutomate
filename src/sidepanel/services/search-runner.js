@@ -145,14 +145,22 @@ async function removeCompanyValues(tabId, url, log) {
 const APPLY_BY_ID_STRATEGIES = ["in-page-navigation", "reload"];
 
 // Polls until the tab URL holds just the company `companyId` and the page
-// shows its value as selected with none of `previous` left; returns that
-// URL, or null when time runs out. The URL alone isn't enough after in-page
-// navigation: it's the one the extension wrote, followed by the page or not.
-async function waitForCompanyShown(tabId, companyId, previous, timeout) {
+// shows it as the only selected value; returns that URL, or null when time
+// runs out. The URL alone isn't enough after in-page navigation: it's the
+// one the extension wrote, followed by the page or not.
+//
+// The page shows LinkedIn's name for the company ("American Vacuum Society
+// (AVS)"), not the file's label in the URL ("AVS"), so it counts as shown
+// when the page has one selected value that wasn't there before the change
+// (`shownBefore`, the page's values then). Failing that, the label itself
+// shown as selected with none of `previous` (the URL's earlier labels) left.
+async function waitForCompanyShown(tabId, companyId, previous, shownBefore, timeout) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const url = (await chrome.tabs.get(tabId)).url;
     if (isOnlyCompany(url, companyId)) {
+      const { texts } = await sendToContent(tabId, "selectedFilterTexts", { filterType: COMPANY });
+      if (texts.length === 1 && !shownBefore.includes(texts[0])) return url;
       const [{ text }] = getFilterValues(url, COMPANY);
       const others = previous.filter((value) => value !== text);
       const { present } = await sendToContent(tabId, "presentFilterValues", { filterType: COMPANY, values: [text, ...others] });
@@ -165,12 +173,17 @@ async function waitForCompanyShown(tabId, companyId, previous, timeout) {
 
 const APPLIERS_BY_ID = {
   async "in-page-navigation"(tabId, target, companyId, previous, log) {
+    const { texts: shownBefore } = await sendToContent(tabId, "selectedFilterTexts", { filterType: COMPANY });
     await sendToContent(tabId, "navigateInPage", { url: target });
-    const url = await waitForCompanyShown(tabId, companyId, previous, TIMING.selectAttemptTimeoutMs);
+    const url = await waitForCompanyShown(tabId, companyId, previous, shownBefore, TIMING.selectAttemptTimeoutMs);
     if (url) return url;
 
     const nowUrl = (await chrome.tabs.get(tabId)).url;
-    log.debug(`After in-page navigation: URL companies=[${allCompanies(nowUrl).join(", ")}]`);
+    const { texts: shownNow } = await sendToContent(tabId, "selectedFilterTexts", { filterType: COMPANY });
+    log.debug(
+      `After in-page navigation: URL companies=[${allCompanies(nowUrl).join(", ")}], ` +
+        `page shows [${shownNow.join(", ")}], before [${shownBefore.join(", ")}]`
+    );
     await logFilterSnapshot(tabId, [...new Set([...allCompanies(nowUrl), ...previous])], log, "company by id not shown");
     const { restored } = await sendToContent(tabId, "undoInPageNavigation");
     log.debug(`Previous URL ${restored ? "restored" : "not restored"}`);
@@ -190,7 +203,8 @@ const APPLIERS_BY_ID = {
     if (!isOnlyCompany(url, companyId)) {
       throw new Error(`the loaded search has companies [${allCompanies(url).join(", ")}] instead of id ${companyId}`);
     }
-    if (!(await waitForCompanyShown(tabId, companyId, previous, TIMING.selectAttemptTimeoutMs))) {
+    // A loaded page shows only what its URL holds: any one value is the company.
+    if (!(await waitForCompanyShown(tabId, companyId, previous, [], TIMING.selectAttemptTimeoutMs))) {
       log.warn(`The URL has company id ${companyId}, but the page doesn't show "${getFilterValues(url, COMPANY)[0].text}" as selected`);
     }
     return url;

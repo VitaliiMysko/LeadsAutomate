@@ -24,6 +24,18 @@ export const TIMING = {
   beforeLeadClickMs: [3000, 3000],
   // How long an opened lead's details may take to show.
   leadPanelTimeoutMs: 8000,
+  // Random pause before each Lead generator step (Extract, Generate, Save).
+  betweenLeadGeneratorStepsMs: [1500, 3000],
+  // Upper bound for one Lead generator step: Extract waits for the company's
+  // details, read from its LinkedIn page in a background tab.
+  leadGeneratorStepTimeoutMs: 120000,
+};
+
+// The companion Lead generator extension, found by its name among the
+// installed extensions.
+export const LEAD_GENERATOR = {
+  name: "Lead generator",
+  pingTimeoutMs: 5000,
 };
 
 // How many shorter names (name-variants.js) a search may try after the name

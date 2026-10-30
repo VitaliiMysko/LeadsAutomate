@@ -8,6 +8,9 @@ window.leadsAutomate.SELECTORS = {
   filterFieldset: (filterType) => [`fieldset[data-x-search-filter="${filterType}"]`],
   // Header button that expands a collapsed filter.
   filterExpandButton: ['button[aria-expanded="false"]'],
+  // A value selected in a filter (a pill), its text in `title`: LinkedIn's
+  // name for it, whatever label the URL gave.
+  filterSelectedValue: [".artdeco-pill--selected[title]"],
   filterInput: ['input[role="combobox"]', 'input[type="text"]', "input:not([type])"],
   suggestionOption: ['[role="option"]'],
   // The company logo inside a dropdown option.
@@ -31,5 +34,6 @@ window.leadsAutomate.SELECTORS = {
   leadTenure: [".artdeco-entity-lockup__metadata"],
   // The lead's details opened over the results (the content of
   // linkedin.com/sales/lead/...).
-  leadPanel: ['[role="dialog"]', "aside", "#inline-sidesheet-outlet"],
+  // Its name heading first: the same attribute on the lead's own page.
+  leadPanel: ["h1[data-x--lead--name]", '[role="dialog"]', "aside", "#inline-sidesheet-outlet"],
 };

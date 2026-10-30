@@ -245,14 +245,16 @@ function setCompanyName(name) {
   saveValue(STORAGE_KEYS.companyName, name);
 }
 
-// Opens the company's leads by the job-title priorities; returns how many
-// were opened, or null when that failed (a FatalError is passed on).
+// Saves the company's leads through Lead generator by the job-title
+// priorities; returns how many were saved, or null when that failed (a
+// FatalError is passed on).
 async function runLeadSelection(name) {
   status.running(`Selecting leads for "${name}"…`);
   try {
-    const { picks, opened } = await selectLeads(getJobPriorities(), { log });
-    (opened === picks.length ? log.success : log.warn)(`"${name}": ${opened} of ${picks.length} chosen leads opened`);
-    return opened;
+    const { saved, tried, columns } = await selectLeads(getJobPriorities(), { log });
+    const wanted = columns.management.wanted + columns.technical.wanted;
+    (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried)`);
+    return saved;
   } catch (error) {
     if (error instanceof FatalError) throw error;
     log.error(`"${name}": selecting leads failed: ${error.message}`);
@@ -317,7 +319,7 @@ function finishStatus(name, result) {
   else if (result.outcome === "unresolved") status.warn(`"${name}" needs a manual company choice (${result.reason})`);
   else if (result.count === 0) status.warn(`"${name}" → "${result.chosen}": no leads found`);
   else if (result.selected === null) status.warn(`"${name}" → "${result.chosen}": ${result.count} leads found, selecting them failed`);
-  else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} selected`);
+  else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} saved`);
 }
 
 async function withBusy(task) {
