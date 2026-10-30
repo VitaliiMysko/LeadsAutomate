@@ -4,11 +4,12 @@ import { companyPagePath } from "../../utils/company-page.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
 import { logoSimilarity } from "../../utils/image-hash.js";
 import { searchCompany } from "../services/search-runner.js";
+import { selectLeads } from "../services/lead-runner.js";
 import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
 import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError } from "../services/tab-service.js";
-import { ensureJobTitles } from "./job-board.js";
+import { ensureJobTitles, getJobPriorities } from "./job-board.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
@@ -244,6 +245,21 @@ function setCompanyName(name) {
   saveValue(STORAGE_KEYS.companyName, name);
 }
 
+// Opens the company's leads by the job-title priorities; returns how many
+// were opened, or null when that failed (a FatalError is passed on).
+async function runLeadSelection(name) {
+  status.running(`Selecting leads for "${name}"…`);
+  try {
+    const { picks, opened } = await selectLeads(getJobPriorities(), { log });
+    (opened === picks.length ? log.success : log.warn)(`"${name}": ${opened} of ${picks.length} chosen leads opened`);
+    return opened;
+  } catch (error) {
+    if (error instanceof FatalError) throw error;
+    log.error(`"${name}": selecting leads failed: ${error.message}`);
+    return null;
+  }
+}
+
 // Runs one company search, reporting to the log; status is left to the caller.
 // `company` is the companies-file entry (for its id), else found by name.
 // Returns { ok, fatal, outcome, chosen, count, reason, error }.
@@ -283,6 +299,7 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
         log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
       } else {
         log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
+        result.selected = await runLeadSelection(name);
       }
     }
     return { ok: true, fatal: false, ...result };
@@ -299,7 +316,8 @@ function finishStatus(name, result) {
   if (!result.ok) status.error(`"${name}" failed: ${result.error.message}`);
   else if (result.outcome === "unresolved") status.warn(`"${name}" needs a manual company choice (${result.reason})`);
   else if (result.count === 0) status.warn(`"${name}" → "${result.chosen}": no leads found`);
-  else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found`);
+  else if (result.selected === null) status.warn(`"${name}" → "${result.chosen}": ${result.count} leads found, selecting them failed`);
+  else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} selected`);
 }
 
 async function withBusy(task) {

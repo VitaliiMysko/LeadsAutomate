@@ -5,6 +5,7 @@
 // LinkedIn's hashed CSS class names, unlike scraping the filter panel.
 
 const PEOPLE_SEARCH_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\/search\/people/;
+const LEAD_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\/lead\//;
 
 export const FILTER_TYPES = {
   CURRENT_TITLE: "CURRENT_TITLE",
@@ -18,6 +19,12 @@ export const SELECTION_TYPES = {
 
 export function isPeopleSearchUrl(url) {
   return typeof url === "string" && PEOPLE_SEARCH_URL_REGEX.test(url);
+}
+
+// A lead's page (linkedin.com/sales/lead/...), also shown over the search
+// results when a lead is opened from them.
+export function isLeadUrl(url) {
+  return typeof url === "string" && LEAD_URL_REGEX.test(url);
 }
 
 function decode(raw) {

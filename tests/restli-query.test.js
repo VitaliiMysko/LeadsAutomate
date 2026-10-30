@@ -7,6 +7,7 @@ import {
   getFilterValues,
   getFilterTexts,
   isPeopleSearchUrl,
+  isLeadUrl,
   FILTER_TYPES,
   SELECTION_TYPES,
 } from "../src/utils/restli-query.js";
@@ -174,5 +175,16 @@ describe("isPeopleSearchUrl", () => {
     [undefined, false],
   ])("%s → %s", (url, expected) => {
     expect(isPeopleSearchUrl(url)).toBe(expected);
+  });
+});
+
+describe("isLeadUrl", () => {
+  test.each([
+    ["https://www.linkedin.com/sales/lead/ACwAA,NAME_SEARCH,x1y2", true],
+    ["https://www.linkedin.com/sales/search/people?query=()", false],
+    ["https://www.linkedin.com/in/someone/", false],
+    [undefined, false],
+  ])("%s → %s", (url, expected) => {
+    expect(isLeadUrl(url)).toBe(expected);
   });
 });

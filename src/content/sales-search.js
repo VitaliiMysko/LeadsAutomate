@@ -10,6 +10,7 @@ if (!window.leadsAutomate.salesSearchInit) {
   const {
     SELECTORS,
     humanDelay,
+    isVisible,
     queryFirst,
     queryAllFirst,
     waitFor,
@@ -320,8 +321,111 @@ if (!window.leadsAutomate.salesSearchInit) {
     return { count: items.length, settled };
   }
 
+  function leadRows() {
+    const container = queryFirst(document, SELECTORS.resultsContainer) || document;
+    return queryAllFirst(container, SELECTORS.leadRow);
+  }
+
+  function leadLink(row) {
+    const found = queryFirst(row, SELECTORS.leadLink);
+    return found?.closest("a") || found;
+  }
+
+  const rowText = (row, selectors) => (queryFirst(row, selectors)?.innerText || "").replace(/\s+/g, " ").trim();
+
+  function describeLead(row, index) {
+    const link = leadLink(row);
+    return {
+      index,
+      name: rowText(row, SELECTORS.leadName) || (link?.innerText || "").replace(/\s+/g, " ").trim(),
+      title: rowText(row, SELECTORS.leadTitle),
+      company: rowText(row, SELECTORS.leadCompany),
+      location: rowText(row, SELECTORS.leadLocation),
+      tenure: rowText(row, SELECTORS.leadTenure),
+      href: link?.href || "",
+      locked: !!queryFirst(row, SELECTORS.leadLocked),
+      // For finding the locked leads' marker when Sales Navigator changes it.
+      buttons: [...row.querySelectorAll("button")].map(describeElementDetailed),
+    };
+  }
+
+  // The leads of the results page, in order. A row not filled in yet is
+  // scrolled into view first, at a reading pace, so its details render.
+  async function readLeads() {
+    const rows = leadRows();
+    const leads = [];
+    for (const [index, row] of rows.entries()) {
+      if (!leadLink(row)) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        await waitFor(() => leadLink(row), { timeout: 4000, description: "the lead's details" }).catch(() => null);
+        await humanDelay(200, 500);
+      }
+      leads.push(describeLead(row, index));
+    }
+    return { leads };
+  }
+
+  // Clicks the name of the lead in row `index` (its name checked), which
+  // opens the lead's details over the results. A click the page doesn't
+  // handle is cancelled, so the browser doesn't leave the search for the
+  // lead's page; `handled` reports it (null: unknown).
+  async function openLead({ index, name }) {
+    const row = leadRows()[index];
+    if (!row) throw new Error(`Lead #${index + 1} is no longer in the results`);
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    await humanDelay();
+    const lead = describeLead(row, index);
+    if (normalizeText(lead.name) !== normalizeText(name)) {
+      throw new Error(`Lead #${index + 1} is now "${lead.name}", not "${name}"`);
+    }
+    const link = leadLink(row);
+    if (!link) throw new Error(`"${name}" has no link to open`);
+
+    let handled = null;
+    const guard = (event) => {
+      handled = event.defaultPrevented;
+      if (!event.defaultPrevented) event.preventDefault();
+    };
+    window.addEventListener("click", guard);
+    const rect = link.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      button: 0,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    };
+    try {
+      for (const type of ["mousedown", "mouseup", "click"]) {
+        link.dispatchEvent(new MouseEvent(type, init));
+        if (type !== "click") await humanDelay(40, 120);
+      }
+    } finally {
+      window.removeEventListener("click", guard);
+    }
+    return { handled, href: link.href };
+  }
+
+  // Whether the details of the lead named `name` are shown outside the
+  // results list.
+  async function leadPanelState({ name }) {
+    const target = normalizeText(name);
+    const results = queryFirst(document, SELECTORS.resultsContainer);
+    // Every candidate, not only the first selector's: other dialogs and
+    // asides (the filters) may be shown too.
+    const panel = [...document.querySelectorAll(SELECTORS.leadPanel.join(", "))].find(
+      (element) => isVisible(element) && !results?.contains(element) && normalizeText(element.innerText).includes(target)
+    );
+    return { open: !!panel, panel: panel ? describeElementDetailed(panel) : null };
+  }
+
   const handlers = {
     ping: async () => ({ url: location.href }),
+    readLeads,
+    openLead,
+    leadPanelState,
     isFilterReady,
     typeFilterValue,
     selectSuggestion,

@@ -19,6 +19,11 @@ export const TIMING = {
   beforeCompanyByIdMs: [800, 2000],
   // Random pause before reading a company id from its LinkedIn page.
   beforeCompanyPageMs: [800, 2000],
+  // Pause before each lead is opened from the results. A fixed 3 s for now
+  // (a placeholder); the click itself adds a short random delay.
+  beforeLeadClickMs: [3000, 3000],
+  // How long an opened lead's details may take to show.
+  leadPanelTimeoutMs: 8000,
 };
 
 // How many shorter names (name-variants.js) a search may try after the name

@@ -1,4 +1,4 @@
-import { FILTER_TYPES, getSearchFilters, getFilterTexts, isPeopleSearchUrl } from "../utils/restli-query.js";
+import { FILTER_TYPES, getSearchFilters, getFilterTexts, isPeopleSearchUrl, isLeadUrl } from "../utils/restli-query.js";
 import { getActiveTab } from "./services/tab-service.js";
 import { clearOutdatedMatchRecords } from "./services/match-recorder.js";
 import { initLog, log } from "./ui/log.js";
@@ -15,6 +15,9 @@ let lastTitlesKey = null;
 async function refreshJobTitles() {
   const tab = await getActiveTab().catch(() => null);
   const url = tab?.url;
+  // A lead opened from the results: the search (and its filters) is still
+  // behind it.
+  if (isLeadUrl(url)) return;
 
   let titles = null;
   let message = "";
