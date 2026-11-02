@@ -37,6 +37,11 @@ window.leadsAutomate.SELECTORS = {
   // The "View profile" button of a locked lead (out of the user's network):
   // its page holds no details, so it's never taken.
   leadLocked: ['[data-control-name*="unlock"]', '[data-control-name*="view_profile"]', '[data-x--lead-locked]'],
+  // The results pagination (artdeco classes and data-test attributes aren't
+  // hashed): the button of page N, then the Next button. Used only when the
+  // page doesn't follow the URL's `page` parameter.
+  paginationPage: (page) => [`[data-test-pagination-page-btn="${page}"] button`],
+  paginationNext: ["button.artdeco-pagination__button--next"],
   // Time in role / in company.
   leadTenure: [".artdeco-entity-lockup__metadata"],
   // The lead's details opened over the results (the content of

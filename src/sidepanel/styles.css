@@ -918,6 +918,15 @@ input[readonly] {
   color: var(--text-muted);
 }
 
+/* ---- settings ---------------------------------------------------------- */
+
+/* One setting per row: its name on the left, the field on the right. */
+.setting {
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
 /* ---- lead statistics --------------------------------------------------- */
 
 .lead-stats {

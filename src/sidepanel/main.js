@@ -67,6 +67,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initSearchControls({
     companyName: $("company-name"),
     searchButton: $("search-btn"),
+    resultPagesInput: $("result-pages"),
     fileInput: $("companies-file"),
     fileButton: $("companies-file-btn"),
     fileName: $("companies-file-name"),

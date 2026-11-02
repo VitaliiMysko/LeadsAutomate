@@ -1,4 +1,4 @@
-import { titleMatches, splitTitle, nextPick, countFound, canOpenLead } from "../src/utils/lead-picker.js";
+import { titleMatches, splitTitle, nextPick, countFound, canOpenLead, wantsMoreLeads } from "../src/utils/lead-picker.js";
 
 const lead = (index, title, extra = {}) => ({
   index,
@@ -157,5 +157,38 @@ describe("canOpenLead", () => {
     expect(canOpenLead(lead(0, "CTO"))).toBe(true);
     expect(canOpenLead(lead(0, "CTO", { locked: true }))).toBe(false);
     expect(canOpenLead(lead(0, "CTO", { href: "" }))).toBe(false);
+  });
+});
+
+describe("wantsMoreLeads", () => {
+  const plans = { management: [entry(["CEO"], 1), entry(["COO"], 1)], technical: [] };
+  const counts = { management: 2, technical: 0 };
+
+  test("true while a column lacks leads and an entry has room", () => {
+    expect(wantsMoreLeads(plans, counts, [])).toBe(true);
+    expect(wantsMoreLeads(plans, counts, [{ index: 0, column: "management", entryIndex: 0, saved: true }])).toBe(true);
+  });
+
+  test("false once the columns have their leads", () => {
+    const tried = [
+      { index: 0, column: "management", entryIndex: 0, saved: true },
+      { index: 1, column: "management", entryIndex: 1, saved: true },
+    ];
+    expect(wantsMoreLeads(plans, counts, tried)).toBe(false);
+  });
+
+  test("false when every entry is full though the column lacks leads", () => {
+    const tried = [
+      { index: 0, column: "management", entryIndex: 0, saved: true },
+      { index: 1, column: "management", entryIndex: 1, saved: true },
+    ];
+    expect(wantsMoreLeads(plans, { management: 3, technical: 0 }, tried)).toBe(false);
+  });
+
+  test("leads not saved don't fill an entry", () => {
+    const tried = [{ index: 0, column: "management", entryIndex: 0, saved: false }];
+    expect(wantsMoreLeads({ management: [entry(["CEO"], 1)], technical: [] }, { management: 1, technical: 0 }, tried)).toBe(
+      true
+    );
   });
 });

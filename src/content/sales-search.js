@@ -425,6 +425,39 @@ if (!window.leadsAutomate.salesSearchInit) {
     return { handled, href: link.href };
   }
 
+  // What tells one results page from another: the link of its first lead.
+  async function resultsMarker() {
+    if (noResultsShown()) return { first: "", noMatches: true };
+    const row = leadRows()[0];
+    return { first: (row && leadLink(row)?.href) || "", noMatches: false };
+  }
+
+  // Clicks the pagination button of results page `page` (else Next, when
+  // `next` says it's the following page). Fallback for when the page didn't
+  // follow the URL; `clicked` is false when there's no such button.
+  async function clickResultsPage({ page, next }) {
+    const button =
+      queryFirst(document, SELECTORS.paginationPage(page)) || (next ? queryFirst(document, SELECTORS.paginationNext) : null);
+    if (!button || button.disabled) return { clicked: false };
+    button.scrollIntoView({ block: "center", behavior: "smooth" });
+    await humanDelay();
+    const rect = button.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      button: 0,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    };
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      button.dispatchEvent(new MouseEvent(type, init));
+      if (type !== "click") await humanDelay(40, 120);
+    }
+    return { clicked: true };
+  }
+
   // Whether the details of the lead named `name` are shown outside the
   // results list.
   async function leadPanelState({ name }) {
@@ -443,6 +476,8 @@ if (!window.leadsAutomate.salesSearchInit) {
     readLeads,
     openLead,
     leadPanelState,
+    resultsMarker,
+    clickResultsPage,
     isFilterReady,
     typeFilterValue,
     selectSuggestion,

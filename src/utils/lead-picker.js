@@ -86,3 +86,19 @@ export function nextPick(leads, plans, leadsCount, tried = []) {
   }
   return null;
 }
+
+// Whether another results page could still give a lead: some column has
+// fewer found leads than its `leadsCount`, with an entry that has fewer than
+// its own count.
+export function wantsMoreLeads(plans, leadsCount, tried = []) {
+  const totals = countFound(tried, leadsCount);
+  return COLUMNS.some(
+    (column) =>
+      totals[column].found < totals[column].wanted &&
+      (plans?.[column] ?? []).some(
+        (entry, entryIndex) =>
+          tried.filter((item) => item.column === column && item.entryIndex === entryIndex && item.saved).length <
+          entry.count
+      )
+  );
+}

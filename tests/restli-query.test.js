@@ -8,6 +8,8 @@ import {
   getFilterTexts,
   isPeopleSearchUrl,
   isLeadUrl,
+  pageOf,
+  urlWithPage,
   FILTER_TYPES,
   SELECTION_TYPES,
 } from "../src/utils/restli-query.js";
@@ -186,5 +188,26 @@ describe("isLeadUrl", () => {
     [undefined, false],
   ])("%s → %s", (url, expected) => {
     expect(isLeadUrl(url)).toBe(expected);
+  });
+});
+
+describe("pageOf / urlWithPage", () => {
+  const base = "https://www.linkedin.com/sales/search/people?query=(a%3A1)&sessionId=abc";
+
+  test("reads the page parameter, 1 without it or when invalid", () => {
+    expect(pageOf(base)).toBe(1);
+    expect(pageOf(`${base}&page=3`)).toBe(3);
+    expect(pageOf(`${base}&page=0`)).toBe(1);
+    expect(pageOf(`${base}&page=x`)).toBe(1);
+    expect(pageOf("not a url")).toBe(1);
+  });
+
+  test("sets the page, keeping the query, and drops it for page 1", () => {
+    const second = urlWithPage(base, 2);
+    expect(pageOf(second)).toBe(2);
+    expect(new URL(second).searchParams.get("query")).toBe("(a:1)");
+    expect(new URL(second).searchParams.get("sessionId")).toBe("abc");
+    expect(new URL(urlWithPage(second, 1)).searchParams.has("page")).toBe(false);
+    expect(urlWithPage("not a url", 2)).toBeNull();
   });
 });

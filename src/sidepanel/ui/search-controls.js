@@ -1,4 +1,5 @@
-import { STORAGE_KEYS, TIMING } from "../../constants/config.js";
+import { STORAGE_KEYS, TIMING, RESULT_PAGES } from "../../constants/config.js";
+import { clampCount } from "../../utils/priority-board.js";
 import { parseCompaniesFile, companiesCsvColumns, columnMappingLines } from "../../utils/companies-file.js";
 import { companyPagePath } from "../../utils/company-page.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
@@ -35,6 +36,8 @@ let labeling = false;
 let unresolved = []; // [{ name, reason }]
 // Leads tried and saved by lead selection, over all searches until Reset.
 let leadStats = { tried: 0, saved: 0 };
+// How many results pages lead selection may read per search.
+let resultPages = RESULT_PAGES.default;
 let busy = false;
 let batchRunning = false;
 let waitingManual = false;
@@ -230,6 +233,7 @@ function updateControls() {
   const hasNext = queue.index < queue.companies.length;
 
   elements.companyName.readOnly = busy;
+  elements.resultPagesInput.disabled = busy;
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
   elements.searchAllButton.disabled = busy || !hasNext || labeling;
@@ -277,9 +281,13 @@ function setCompanyName(name) {
 async function runLeadSelection(name) {
   status.running(`Selecting leads for "${name}"…`);
   try {
-    const { saved, tried, columns } = await selectLeads(getJobPriorities(), { log, onLeadTried: countLead });
+    const { saved, tried, columns, pages } = await selectLeads(getJobPriorities(), {
+      log,
+      pages: resultPages,
+      onLeadTried: countLead,
+    });
     const wanted = columns.management.wanted + columns.technical.wanted;
-    (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried)`);
+    (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried, ${pages} results pages read)`);
     return saved;
   } catch (error) {
     if (error instanceof FatalError) throw error;
@@ -726,12 +734,22 @@ export async function initSearchControls(controlElements) {
     tried: Math.max(Number(storedStats?.tried) || 0, 0),
     saved: Math.max(Number(storedStats?.saved) || 0, 0),
   };
+  resultPages = clampCount(await loadValue(STORAGE_KEYS.resultPages, RESULT_PAGES.default), RESULT_PAGES);
   elements.companyName.value = await loadValue(STORAGE_KEYS.companyName, "");
 
   elements.companyName.addEventListener("input", updateControls);
   elements.companyName.addEventListener("change", () => setCompanyName(elements.companyName.value.trim()));
   elements.companyName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") handleSearch();
+  });
+  elements.resultPagesInput.min = RESULT_PAGES.min;
+  elements.resultPagesInput.max = RESULT_PAGES.max;
+  elements.resultPagesInput.value = resultPages;
+  elements.resultPagesInput.addEventListener("change", () => {
+    resultPages = clampCount(elements.resultPagesInput.value, RESULT_PAGES);
+    elements.resultPagesInput.value = resultPages;
+    saveValue(STORAGE_KEYS.resultPages, resultPages);
+    log.info(`Result pages to check: ${resultPages}`);
   });
   elements.searchButton.addEventListener("click", handleSearch);
   elements.searchNextButton.addEventListener("click", handleSearchNext);

@@ -243,3 +243,28 @@ export function getFilterTexts(url, type, selectionType = SELECTION_TYPES.INCLUD
   }
   return texts;
 }
+
+// The results page the search URL shows (its `page` parameter), 1 when it
+// has none.
+export function pageOf(url) {
+  try {
+    const page = Number(new URL(url).searchParams.get("page"));
+    return Number.isInteger(page) && page > 1 ? page : 1;
+  } catch {
+    return 1;
+  }
+}
+
+// The same search URL on results page `page`, or null when it isn't a URL.
+// Page 1 has no `page` parameter, like Sales Navigator's own first page.
+export function urlWithPage(url, page) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return null;
+  }
+  if (page > 1) parsedUrl.searchParams.set("page", String(page));
+  else parsedUrl.searchParams.delete("page");
+  return parsedUrl.toString();
+}
