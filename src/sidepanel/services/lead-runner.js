@@ -106,9 +106,10 @@ async function returnToSearch(tabId, searchUrl, log) {
 // has Lead generator extract it, find its email and save it. Only a saved
 // lead counts toward its column's and its item's lead count; otherwise the
 // next matching lead is tried. Returns { leads, tried, columns, saved }.
+// `onLeadTried(saved)` is called after each lead tried, for the statistics.
 // Throws FatalError when Lead generator can't be used or the tab is
 // unusable; a lead that fails is logged and skipped.
-export async function selectLeads(priorities, { log }) {
+export async function selectLeads(priorities, { log, onLeadTried = () => {} }) {
   const tab = await getSearchTab();
   const searchUrl = tab.url;
   const { leadsCount } = priorities;
@@ -143,6 +144,7 @@ export async function selectLeads(priorities, { log }) {
         if (error instanceof FatalError) throw error;
         log.warn(`"${pick.lead.name}": ${error.message}`);
       }
+      onLeadTried(attempt.saved);
       if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.column} lead for "${pick.entry}"`);
     }
   } finally {

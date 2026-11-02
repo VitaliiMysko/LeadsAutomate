@@ -69,6 +69,10 @@
         <div class="progress__track"><div id="progress-fill" class="progress__fill"></div></div>
         <span id="progress-text" class="progress__text">0 / 0</span>
       </div>
+      <div class="lead-stats">
+        <span id="lead-stats-text" class="lead-stats__text" title="Leads tried (opened and given to Lead generator) and leads saved with an email, now or by an earlier search"></span>
+        <button type="button" id="lead-stats-reset-btn" class="btn btn--secondary btn--small" title="Set the lead counts back to zero">Reset</button>
+      </div>
       <div id="current-logo" class="current-logo" hidden>
         <img id="current-file-logo" class="current-logo__img" alt="Logo from the companies file" />
         <span class="current-logo__arrow" aria-hidden="true">→</span>
@@ -82,6 +86,8 @@
         <button type="button" id="search-next-btn" class="btn btn--primary">Search next</button>
         <button type="button" id="search-all-btn" class="btn btn--primary">Search all</button>
         <button type="button" id="stop-btn" class="btn btn--danger">Stop</button>
+        <button type="button" id="prev-company-btn" class="btn btn--secondary btn--icon" title="Go back to the previous company in the list" aria-label="Previous company">‹</button>
+        <button type="button" id="next-company-btn" class="btn btn--secondary btn--icon" title="Skip to the next company in the list without searching" aria-label="Next company">›</button>
         <button type="button" id="reset-queue-btn" class="btn btn--secondary btn--icon" title="Start the list over" aria-label="Start the list over">↺</button>
       </div>
       <div class="labeling-row">

@@ -69,6 +69,7 @@ export const STORAGE_KEYS = {
   unresolvedCompanies: "unresolvedCompanies",
   matchRecords: "companyMatchRecords",
   companyPageIds: "companyPageIds",
+  leadStats: "leadStats",
 };
 
 export const LOG_LIMIT = 1000;

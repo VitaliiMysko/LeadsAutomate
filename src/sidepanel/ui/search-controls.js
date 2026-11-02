@@ -33,6 +33,8 @@ let logos = {}; // company name → { hash, thumb }
 // choice is only predicted and recorded next to it.
 let labeling = false;
 let unresolved = []; // [{ name, reason }]
+// Leads tried and saved by lead selection, over all searches until Reset.
+let leadStats = { tried: 0, saved: 0 };
 let busy = false;
 let batchRunning = false;
 let waitingManual = false;
@@ -139,6 +141,27 @@ function showCurrentLogo(name, result = null) {
           : "no logo to compare";
 }
 
+function renderLeadStats() {
+  const { tried, saved } = leadStats;
+  const share = tried ? ` (${Math.round((saved / tried) * 100)}%)` : "";
+  elements.leadStatsText.textContent = `Leads: ${tried} checked · ${saved} found${share}`;
+  elements.leadStatsResetButton.disabled = busy || tried === 0;
+}
+
+function countLead(saved) {
+  leadStats = { tried: leadStats.tried + 1, saved: leadStats.saved + (saved ? 1 : 0) };
+  saveValue(STORAGE_KEYS.leadStats, leadStats);
+  renderLeadStats();
+}
+
+function handleResetLeadStats() {
+  if (busy) return;
+  log.info(`Lead counts reset (were ${leadStats.tried} checked, ${leadStats.saved} found)`);
+  leadStats = { tried: 0, saved: 0 };
+  saveValue(STORAGE_KEYS.leadStats, leadStats);
+  renderLeadStats();
+}
+
 function persistUnresolved() {
   saveValue(STORAGE_KEYS.unresolvedCompanies, unresolved);
 }
@@ -217,6 +240,8 @@ function updateControls() {
   elements.cleanRecordsButton.hidden = !labeling;
   elements.cleanRecordsButton.disabled = busy;
   elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
+  elements.prevCompanyButton.disabled = busy || queue.index === 0;
+  elements.nextCompanyButton.disabled = busy || !hasNext;
   elements.resetQueueButton.disabled = busy || queue.index === 0;
   elements.fileInput.disabled = busy;
   elements.fileButton.classList.toggle("btn--disabled", busy);
@@ -237,6 +262,7 @@ function updateControls() {
   elements.progressText.textContent = `${queue.index} / ${total}`;
   elements.progressFill.style.width = total ? `${(queue.index / total) * 100}%` : "0%";
 
+  renderLeadStats();
   renderUnresolved();
 }
 
@@ -251,7 +277,7 @@ function setCompanyName(name) {
 async function runLeadSelection(name) {
   status.running(`Selecting leads for "${name}"…`);
   try {
-    const { saved, tried, columns } = await selectLeads(getJobPriorities(), { log });
+    const { saved, tried, columns } = await selectLeads(getJobPriorities(), { log, onLeadTried: countLead });
     const wanted = columns.management.wanted + columns.technical.wanted;
     (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried)`);
     return saved;
@@ -558,6 +584,23 @@ async function handleFile() {
   }
 }
 
+// ‹ / ›: moves the list's position by one company without searching, so
+// Search next searches the previous company again or skips the current one.
+function handleMoveQueue(step) {
+  const index = queue.index + step;
+  if (busy || index < 0 || index > queue.companies.length) return;
+  queue.index = index;
+  persistQueue();
+  const company = queue.companies[index];
+  if (company) setCompanyName(company.name);
+  log.info(
+    company
+      ? `Companies list moved to "${company.name}" (${index + 1} of ${queue.companies.length})`
+      : "Companies list moved past the last company"
+  );
+  updateControls();
+}
+
 function handleResetQueue() {
   if (busy) return;
   queue.index = 0;
@@ -678,6 +721,11 @@ export async function initSearchControls(controlElements) {
   unresolved = (Array.isArray(storedUnresolved) ? storedUnresolved : [])
     .filter((item) => typeof item?.name === "string")
     .map(({ name, reason }) => ({ name, reason: String(reason ?? "") }));
+  const storedStats = await loadValue(STORAGE_KEYS.leadStats, null);
+  leadStats = {
+    tried: Math.max(Number(storedStats?.tried) || 0, 0),
+    saved: Math.max(Number(storedStats?.saved) || 0, 0),
+  };
   elements.companyName.value = await loadValue(STORAGE_KEYS.companyName, "");
 
   elements.companyName.addEventListener("input", updateControls);
@@ -689,7 +737,10 @@ export async function initSearchControls(controlElements) {
   elements.searchNextButton.addEventListener("click", handleSearchNext);
   elements.searchAllButton.addEventListener("click", handleSearchAll);
   elements.stopButton.addEventListener("click", handleStop);
+  elements.prevCompanyButton.addEventListener("click", () => handleMoveQueue(-1));
+  elements.nextCompanyButton.addEventListener("click", () => handleMoveQueue(1));
   elements.resetQueueButton.addEventListener("click", handleResetQueue);
+  elements.leadStatsResetButton.addEventListener("click", handleResetLeadStats);
   elements.fileInput.addEventListener("change", handleFile);
   elements.logoFolderInput.addEventListener("change", handleLogoFolder);
   elements.labelingToggle.addEventListener("change", handleLabelingToggle);
