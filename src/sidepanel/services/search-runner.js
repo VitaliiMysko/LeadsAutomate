@@ -15,7 +15,15 @@ import { nameFeatures } from "../../utils/name-features.js";
 import { TIMING, LOGO_THRESHOLDS, SHORTER_NAME_ATTEMPTS } from "../../constants/config.js";
 import { formatDuration, randomBetween } from "../../utils/text-utils.js";
 import { hashRemoteLogo } from "./logo-service.js";
-import { getSearchTab, sendToContent, waitForTabUrl, FatalError, StoppedError, WaitTimeoutError } from "./tab-service.js";
+import {
+  getSearchTab,
+  sendToContent,
+  waitForTabUrl,
+  FatalError,
+  RateLimitError,
+  StoppedError,
+  WaitTimeoutError,
+} from "./tab-service.js";
 import { recordMatch } from "./match-recorder.js";
 
 const COMPANY = FILTER_TYPES.CURRENT_COMPANY;
@@ -285,6 +293,7 @@ async function waitForFilterReady(tabId) {
         if (ready) return;
       }
     } catch (error) {
+      if (error instanceof RateLimitError) throw error;
       lastError = error;
     }
     await sleep(500);
@@ -429,7 +438,11 @@ async function typeAndChoose(tabId, typed, fileLogo, log, { shorter = false } = 
 
 async function waitForResults(tabId, log) {
   log.debug("Waiting for search results");
-  const { count, settled } = await sendToContent(tabId, "waitForResults");
+  const { count, settled, noMatches } = await sendToContent(tabId, "waitForResults");
+  if (noMatches) {
+    log.info("Sales Navigator found no matches for these filters");
+    return 0;
+  }
   if (!settled) log.warn("Results area kept changing; the count may be incomplete");
   return count;
 }

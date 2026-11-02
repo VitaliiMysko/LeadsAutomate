@@ -32,6 +32,8 @@ The panel shows these sections, top to bottom:
 
   At the end the tab is put back on the search URL. The log lists the leads read, the plan of each column (`DEBUG`), every lead tried with what Lead generator extracted, the email and the outcome, and how many leads each column saved against its **Leads** value. Only the first results page is read.
 - **Lead generator**: must be installed and enabled, and its panel opened (its icon on the Sales Navigator page) on the search tab before a search; it's found among the installed extensions by its name. Its panel answers only this extension, whose id the manifest `key` fixes (`ofbkinmakmfacepccjcbmjgecdppolki`). When it isn't installed, its panel doesn't answer, or its saved leads limit is reached, the search stops with the reason in the status area and the log, and **Search all** stops too.
+- **No matches**: when Sales Navigator shows *No matches found* (a filter, e.g. *Current job title*, leaves nobody), the search counts as having no leads and no lead is opened. The banner is recognized by its illustration (`empty-room`), not its text.
+- **LinkedIn's request limit**: once LinkedIn refuses a Sales Navigator request with HTTP 429 (*Too many requests*: the account's daily limit is used up), the search stops at its next page step, with the reason and the time in the status area and the log, and **Search all** stops too, leaving the company to search again. Each new search forgets an earlier refusal, so it tries again and stops at once while the limit holds.
 - **Required job titles**: every search (**Search**, **Search next**, **Search all**, and **Search** in the *Needs manual choice* list) needs at least one title or group in the Management or Technical column. With both columns empty the search doesn't start: the status area and the log show an error, and the *Job titles* section opens.
 - **Company → Search**: removes every value already in the *Current company* filter (included and excluded), types the name and picks the company from the dropdown, then waits for the results.
   - Old values are removed without reloading the page. The extension switches the page to the same search URL without the company filter, the way Back / Forward does, and Sales Navigator updates the filters (about 0.2 s). Script-generated clicks on the remove buttons have no effect. If the page doesn't follow, the search URL is reloaded without the filter, and a `DEBUG` snapshot of the selected value goes to the log.
@@ -99,7 +101,7 @@ Board (including manual titles), lead counts, company name, the companies list, 
 
 The manifest `key` gives the extension the same id wherever it's loaded from. An install from before the key (v0.5) had a different id, so Chrome treats this as a new extension and its stored data (board, companies list, logos, match records) doesn't carry over: **Save to file** the job titles and **Export** the match records before reloading.
 
-The `management` permission is used only to find Lead generator among the installed extensions.
+The `management` permission is used only to find Lead generator among the installed extensions. The `webRequest` permission (with `linkedin.com/sales-api/*`) only reads the status codes of Sales Navigator's requests, to notice LinkedIn's request limit (HTTP 429).
 
 Requires Chrome 116+.
 

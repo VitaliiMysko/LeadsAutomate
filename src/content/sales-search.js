@@ -321,11 +321,22 @@ if (!window.leadsAutomate.salesSearchInit) {
     return {};
   }
 
+  // Whether the page shows Sales Navigator's "No matches found" banner (the
+  // whole page is searched: the banner may sit outside the results
+  // container). Whatever list rows the page still holds then (the previous
+  // search's) aren't results of this search.
+  function noResultsShown() {
+    return queryAllFirst(document, SELECTORS.noResults).some((marker) =>
+      isVisible(marker.closest(SELECTORS.noResultsBanner) || marker)
+    );
+  }
+
   async function waitForResults() {
     const container = queryFirst(document, SELECTORS.resultsContainer) || document.body;
     const settled = await waitForDomQuiet(container);
+    if (noResultsShown()) return { count: 0, settled, noMatches: true };
     const items = queryAllFirst(document, SELECTORS.resultItem);
-    return { count: items.length, settled };
+    return { count: items.length, settled, noMatches: false };
   }
 
   function leadRows() {
@@ -357,6 +368,7 @@ if (!window.leadsAutomate.salesSearchInit) {
   // The leads of the results page, in order. A row not filled in yet is
   // scrolled into view first, at a reading pace, so its details render.
   async function readLeads() {
+    if (noResultsShown()) return { leads: [], noMatches: true };
     const rows = leadRows();
     const leads = [];
     for (const [index, row] of rows.entries()) {

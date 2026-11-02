@@ -5,9 +5,10 @@
   "description": "Side panel that prioritizes job titles and runs company-by-company searches on LinkedIn Sales Navigator people search.",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkjIcOOwEzGwPpfiiEy5h195GfGdonSrhNJAlxwpIkTYsX5NcbyDaxnCHf7lnOLL9V/3enKtlJZh8/el5zjDR2YxdkN6y3bYsfK+LWMzWObkir6HTFB29+AuSvsxrlzw3v+WchzbsxK6UrUIO2qp/QfX104BvhY5PWh1i7nlGTF41QAFsPPNlXv9C+r5qizakl4jCepF2EkUQ/TH4nyRtDPW3SRU3YcZe4ZiQxxQ6o6S9L/TCTtbGDRkWZaWshPGrulhutQBtdiNqqBwYxZ8w9Fm9S2C2Iul/yU8g8iFEd7qTpoCI4TsrKYmEXg4ySJnnCuWRkYDGTyEYhs52jzLoyQIDAQAB",
-  "permissions": ["sidePanel", "storage", "management"],
+  "permissions": ["sidePanel", "storage", "management", "webRequest"],
   "host_permissions": [
     "https://www.linkedin.com/sales/*",
+    "https://www.linkedin.com/sales-api/*",
     "https://www.linkedin.com/company/*",
     "https://www.linkedin.com/showcase/*",
     "https://www.linkedin.com/school/*",
