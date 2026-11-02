@@ -3,7 +3,7 @@ import { nextPick, countFound } from "../../utils/lead-picker.js";
 import { COLUMNS } from "../../utils/priority-board.js";
 import { TIMING } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
-import { getSearchTab, sendToContent, FatalError } from "./tab-service.js";
+import { getSearchTab, sendToContent, FatalError, RateLimitError } from "./tab-service.js";
 import { connectLeadGenerator } from "./lead-generator-service.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -120,7 +120,8 @@ export async function selectLeads(priorities, { log }) {
   const leadGenerator = await connectLeadGenerator(tab.id, log);
 
   log.info("Reading the leads on the page");
-  const { leads } = await sendToContent(tab.id, "readLeads");
+  const { leads, noMatches } = await sendToContent(tab.id, "readLeads");
+  if (noMatches) log.info("Sales Navigator shows no matches: no leads to take");
   log.debug(`Leads on the page (${leads.length}): ${leads.map(describeLead).join(" | ") || "none"}`);
   const locked = leads.filter((lead) => lead.locked);
   if (locked.length) log.info(`Skipping ${locked.length} locked leads (View profile): ${leadNumbers(locked)}`);
@@ -145,7 +146,10 @@ export async function selectLeads(priorities, { log }) {
       if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.column} lead for "${pick.entry}"`);
     }
   } finally {
-    await returnToSearch(tab.id, searchUrl, log).catch((error) => log.warn(`Could not return to the search: ${error.message}`));
+    // Not after LinkedIn's rate limit: the run stops, with that reason.
+    await returnToSearch(tab.id, searchUrl, log).catch((error) => {
+      if (!(error instanceof RateLimitError)) log.warn(`Could not return to the search: ${error.message}`);
+    });
   }
 
   const columns = countFound(tried, leadsCount);

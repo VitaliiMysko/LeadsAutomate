@@ -8,7 +8,7 @@ import { selectLeads } from "../services/lead-runner.js";
 import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
 import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
-import { FatalError } from "../services/tab-service.js";
+import { FatalError, clearRateLimit } from "../services/tab-service.js";
 import { ensureJobTitles, getJobPriorities } from "./job-board.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
@@ -325,6 +325,7 @@ function finishStatus(name, result) {
 async function withBusy(task) {
   busy = true;
   stopRequested = false;
+  clearRateLimit();
   updateControls();
   try {
     return await task();

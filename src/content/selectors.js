@@ -16,6 +16,13 @@ window.leadsAutomate.SELECTORS = {
   // The company logo inside a dropdown option.
   optionLogo: ["img"],
   resultsContainer: ["#search-results-container", "main"],
+  // The illustration of the banner shown when the search finds nobody ("No
+  // matches found", with a button to remove a filter). Its banner's classes
+  // are hashed; the illustration's ("illustration-spots-large empty-room")
+  // aren't.
+  noResults: [".empty-room", ".artdeco-empty-state"],
+  // The banner holding the illustration.
+  noResultsBanner: "section",
   resultItem: ['[data-x-search-result="LEAD"]', "ol.artdeco-list > li.artdeco-list__item"],
   // One row of the results list, rendered or not yet: Sales Navigator fills
   // in a row's details only once it's scrolled into view.
