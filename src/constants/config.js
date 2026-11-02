@@ -22,6 +22,10 @@ export const TIMING = {
   // Pause before each lead is opened from the results. A fixed 3 s for now
   // (a placeholder); the click itself adds a short random delay.
   beforeLeadClickMs: [3000, 3000],
+  // Random pause before going to the next results page.
+  betweenPagesMs: [2500, 5000],
+  // How long a results page may take to show after the page step.
+  pageChangeTimeoutMs: 15000,
   // How long an opened lead's details may take to show.
   leadPanelTimeoutMs: 8000,
   // Random pause before each Lead generator step (Extract, Generate, Save).
@@ -57,6 +61,11 @@ export const LOGO_THRESHOLDS = {
 
 export const LEADS_COUNT = { min: 0, max: 9, default: 1 };
 
+// How many results pages lead selection reads (Sales Navigator shows up to
+// 100 pages of LEADS_PER_PAGE leads).
+export const RESULT_PAGES = { min: 1, max: 100, default: 1 };
+export const LEADS_PER_PAGE = 25;
+
 export const STORAGE_KEYS = {
   board: "priorityBoard",
   leadsCount: "leadsCount",
@@ -70,6 +79,7 @@ export const STORAGE_KEYS = {
   matchRecords: "companyMatchRecords",
   companyPageIds: "companyPageIds",
   leadStats: "leadStats",
+  resultPages: "resultPages",
 };
 
 export const LOG_LIMIT = 1000;
