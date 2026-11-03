@@ -54,8 +54,8 @@ async function openLead(tabId, { column, entry, lead }, log) {
 }
 
 // Runs Extract, Generate and Save in Lead generator for the opened lead,
-// with a pause before each step. Returns true when the lead was saved, now
-// or by an earlier search ("Already saved").
+// with a pause before each step. Returns "new" when the lead was saved now,
+// "duplicate" when an earlier search saved it ("Already saved"), else null.
 // Throws FatalError when no more leads can be saved (its limit is reached).
 async function saveLead(leadGenerator, lead, log) {
   const pause = () => sleep(randomBetween(...TIMING.betweenLeadGeneratorStepsMs));
@@ -64,7 +64,7 @@ async function saveLead(leadGenerator, lead, log) {
   const extracted = await leadGenerator.extract();
   if (!extracted.ok) {
     log.warn(`"${lead.name}": Extract failed (${extracted.reason}), not saved`);
-    return false;
+    return null;
   }
   const { firstName, surname, jobPosition, companyName, website } = extracted.lead;
   log.info(
@@ -76,23 +76,23 @@ async function saveLead(leadGenerator, lead, log) {
   const { email, message } = await leadGenerator.generateEmails();
   if (!email) {
     log.warn(`"${lead.name}": no email (${message}), not saved`);
-    return false;
+    return null;
   }
   log.info(`"${lead.name}": email ${email}`);
 
   await pause();
   const { outcome } = await leadGenerator.save();
-  if (outcome === "saved") return true;
-  // Saved by an earlier search: found all the same.
+  if (outcome === "saved") return "new";
+  // Saved by an earlier search: found all the same, but not a new lead.
   if (outcome === "duplicate") {
-    log.info(`"${lead.name}": already saved before, counted as found`);
-    return true;
+    log.info(`"${lead.name}": already saved before, counted as found (not toward the daily limit)`);
+    return "duplicate";
   }
   if (outcome === "limit") {
     throw new FatalError("Lead generator's saved leads limit is reached: copy and clear its saved leads, then search again");
   }
   log.warn(`"${lead.name}": not saved (no data to save)`);
-  return false;
+  return null;
 }
 
 // Puts the tab back on the search when opening leads left it on a lead's
@@ -162,10 +162,12 @@ async function readPage(tabId, page, offset, log) {
 // next matching lead is tried. Reads up to `pages` results pages, from the
 // one shown: the next page only while a column still wants leads (and the
 // page was full). Returns { leads, pages, tried, columns, saved }.
-// `onLeadTried(saved)` is called after each lead tried, for the statistics.
+// `onPageRead()` is called after each results page read,
+// `onLeadTried(saved, isNew)` after each lead tried, for the statistics
+// (`isNew` false for a lead saved by an earlier search).
 // Throws FatalError when Lead generator can't be used or the tab is
 // unusable; a lead that fails is logged and skipped.
-export async function selectLeads(priorities, { log, pages = 1, onLeadTried = () => {} }) {
+export async function selectLeads(priorities, { log, pages = 1, onPageRead = () => {}, onLeadTried = () => {} }) {
   const tab = await getSearchTab();
   const searchUrl = tab.url;
   const firstPage = pageOf(searchUrl);
@@ -185,6 +187,7 @@ export async function selectLeads(priorities, { log, pages = 1, onLeadTried = ()
     for (;;) {
       const leads = await readPage(tab.id, page, allLeads.length, log);
       allLeads.push(...leads);
+      onPageRead();
       await tryLeads(tab.id, leadGenerator, leads, priorities, tried, onLeadTried, log);
 
       if (!wantsMoreLeads(priorities, leadsCount, tried)) break;
@@ -225,17 +228,19 @@ export async function selectLeads(priorities, { log, pages = 1, onLeadTried = ()
 async function tryLeads(tabId, leadGenerator, leads, priorities, tried, onLeadTried, log) {
   const { leadsCount } = priorities;
   for (let pick; (pick = nextPick(leads, priorities, leadsCount, tried)); ) {
-    const attempt = { index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: false };
+    const attempt = { index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: false, isNew: false };
     tried.push(attempt);
     await sleep(randomBetween(...TIMING.beforeLeadClickMs));
     try {
       await openLead(tabId, pick, log);
-      attempt.saved = await saveLead(leadGenerator, pick.lead, log);
+      const outcome = await saveLead(leadGenerator, pick.lead, log);
+      attempt.saved = outcome !== null;
+      attempt.isNew = outcome === "new";
     } catch (error) {
       if (error instanceof FatalError) throw error;
       log.warn(`"${pick.lead.name}": ${error.message}`);
     }
-    onLeadTried(attempt.saved);
+    onLeadTried(attempt.saved, attempt.isNew);
     if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.column} lead for "${pick.entry}"`);
   }
 }

@@ -66,6 +66,9 @@ export const LEADS_COUNT = { min: 0, max: 9, default: 1 };
 export const RESULT_PAGES = { min: 1, max: 100, default: 1 };
 export const LEADS_PER_PAGE = 25;
 
+// The daily limit of found (saved) leads, when the user turns it on.
+export const DAILY_LIMIT = { min: 1, max: 1000, default: 50 };
+
 export const STORAGE_KEYS = {
   board: "priorityBoard",
   leadsCount: "leadsCount",
@@ -80,6 +83,9 @@ export const STORAGE_KEYS = {
   companyPageIds: "companyPageIds",
   leadStats: "leadStats",
   resultPages: "resultPages",
+  collapsedCards: "collapsedCards",
+  dailyLimit: "dailyLimit",
+  dailyFound: "dailyFound",
 };
 
 export const LOG_LIMIT = 1000;

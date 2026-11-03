@@ -1,4 +1,4 @@
-import { parseCompaniesText } from "../src/utils/companies-file.js";
+import { parseCompaniesText, hasLogoColumn } from "../src/utils/companies-file.js";
 
 describe("parseCompaniesText", () => {
   test("splits on commas and trims", () => {
@@ -21,5 +21,19 @@ describe("parseCompaniesText", () => {
     expect(parseCompaniesText("")).toEqual([]);
     expect(parseCompaniesText(" , \n ")).toEqual([]);
     expect(parseCompaniesText(undefined)).toEqual([]);
+  });
+});
+
+describe("hasLogoColumn", () => {
+  test("true for a CSV with a logo column, even with empty cells", () => {
+    expect(hasLogoColumn("company_name,logo\nAcme,C:\logos\acme.png")).toBe(true);
+    expect(hasLogoColumn("company_name;Logo\nAcme;")).toBe(true);
+  });
+
+  test("false without a logo column, for a list of names, or an empty file", () => {
+    expect(hasLogoColumn("company_name,linkedin\nAcme,")).toBe(false);
+    expect(hasLogoColumn("Acme, Globex")).toBe(false);
+    expect(hasLogoColumn("logo,website\nacme.png,acme.com")).toBe(false);
+    expect(hasLogoColumn("")).toBe(false);
   });
 });

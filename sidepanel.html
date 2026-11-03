@@ -19,7 +19,7 @@
       <span class="status__time"></span>
     </section>
 
-    <section class="card">
+    <section class="card" data-collapse="company">
       <div class="card__head"><h2>Company</h2></div>
       <div class="field-row">
         <input type="text" id="company-name" placeholder="Name company" autocomplete="off" />
@@ -27,7 +27,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card" data-collapse="companiesFile">
       <div class="card__head"><h2>Companies file</h2></div>
       <div class="file-row">
         <label id="companies-file-btn" class="btn btn--secondary file-btn">
@@ -69,10 +69,6 @@
         <div class="progress__track"><div id="progress-fill" class="progress__fill"></div></div>
         <span id="progress-text" class="progress__text">0 / 0</span>
       </div>
-      <div class="lead-stats">
-        <span id="lead-stats-text" class="lead-stats__text" title="Leads tried (opened and given to Lead generator) and leads saved with an email, now or by an earlier search"></span>
-        <button type="button" id="lead-stats-reset-btn" class="btn btn--secondary btn--small" title="Set the lead counts back to zero">Reset</button>
-      </div>
       <div id="current-logo" class="current-logo" hidden>
         <img id="current-file-logo" class="current-logo__img" alt="Logo from the companies file" />
         <span class="current-logo__arrow" aria-hidden="true">→</span>
@@ -109,12 +105,48 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card" data-collapse="statistics">
+      <div class="card__head">
+        <h2>Statistics</h2>
+        <button type="button" id="lead-stats-reset-btn" class="btn btn--secondary btn--small" title="Set the lead counts back to zero">Reset</button>
+      </div>
+      <dl class="stats">
+        <div class="stat" title="Search results pages read for leads">
+          <dt>Pages</dt>
+          <dd id="stat-pages">0</dd>
+        </div>
+        <div class="stat" title="Leads tried: opened and given to Lead generator">
+          <dt>Processed</dt>
+          <dd id="stat-tried">0</dd>
+        </div>
+        <div class="stat" title="Leads saved with an email, now or by an earlier search (Already saved)">
+          <dt>Found</dt>
+          <dd id="stat-saved">0</dd>
+        </div>
+        <div class="stat" title="Found leads out of the processed ones">
+          <dt>Success</dt>
+          <dd id="stat-share">—</dd>
+        </div>
+        <div id="stat-daily" class="stat stat--wide" title="New leads found today (not those already saved before) against the daily limit set in Settings; starts over at midnight">
+          <dt>Daily limit</dt>
+          <dd id="stat-daily-value">0 / unlimited</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="card" data-collapse="settings">
       <div class="card__head"><h2>Settings</h2></div>
       <label class="count-field setting" title="How many results pages (25 leads each) every search checks for leads with the job titles; the next page is read only while a column still needs leads">
         <span>Result pages to check</span>
         <input type="number" id="result-pages" inputmode="numeric" />
       </label>
+      <div class="count-field setting" title="When on, searching stops once this many leads were found (saved) today; the count starts over at midnight">
+        <label class="toggle">
+          <input type="checkbox" id="daily-limit-toggle" />
+          <span>Daily limit of found leads</span>
+        </label>
+        <input type="number" id="daily-limit" inputmode="numeric" aria-label="Daily limit of found leads" />
+      </div>
     </section>
 
     <details id="job-section" class="collapsible" open>
@@ -173,7 +205,7 @@
       </div>
     </details>
 
-    <section class="card log-card">
+    <section class="card log-card" data-collapse="log">
       <div class="card__head">
         <h2>Log</h2>
         <div class="log-tools">

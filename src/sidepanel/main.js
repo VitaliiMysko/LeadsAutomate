@@ -5,6 +5,7 @@ import { initLog, log } from "./ui/log.js";
 import { initStatus, status } from "./ui/status.js";
 import { initJobBoard, setFilterTitles } from "./ui/job-board.js";
 import { initSearchControls } from "./ui/search-controls.js";
+import { initCollapsibleCards } from "./ui/collapsible-cards.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -43,6 +44,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("app-version").textContent = `v${chrome.runtime.getManifest().version}`;
 
   initStatus($("status"));
+  await initCollapsibleCards();
   await initLog({
     element: $("log"),
     filtersContainer: $("log-filters"),
@@ -68,12 +70,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     companyName: $("company-name"),
     searchButton: $("search-btn"),
     resultPagesInput: $("result-pages"),
+    dailyLimitToggle: $("daily-limit-toggle"),
+    dailyLimitInput: $("daily-limit"),
+    statDaily: $("stat-daily"),
+    statDailyValue: $("stat-daily-value"),
     fileInput: $("companies-file"),
     fileButton: $("companies-file-btn"),
     fileName: $("companies-file-name"),
     progressText: $("progress-text"),
     progressFill: $("progress-fill"),
-    leadStatsText: $("lead-stats-text"),
+    statPages: $("stat-pages"),
+    statTried: $("stat-tried"),
+    statSaved: $("stat-saved"),
+    statShare: $("stat-share"),
     leadStatsResetButton: $("lead-stats-reset-btn"),
     searchNextButton: $("search-next-btn"),
     searchAllButton: $("search-all-btn"),

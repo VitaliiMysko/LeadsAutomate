@@ -250,6 +250,35 @@ h2 {
   white-space: nowrap;
 }
 
+/* Cards that collapse to their header (collapsible-cards.js): the title is
+   a button with the same chevron as the Job titles section. */
+.card[data-collapse] > .card__head {
+  cursor: pointer;
+  user-select: none;
+}
+
+.card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.card:not(.card--collapsed) > .card__head .collapsible__chevron {
+  transform: rotate(90deg);
+}
+
+.card--collapsed > :not(.card__head) {
+  display: none;
+}
+
 .collapsible[open] > .collapsible__head {
   margin-bottom: 8px;
 }
@@ -927,19 +956,71 @@ input[readonly] {
   color: var(--text);
 }
 
-/* ---- lead statistics --------------------------------------------------- */
+/* A setting turned on and off by a checkbox before its name. */
+.setting .toggle {
+  font-size: inherit;
+  font-weight: inherit;
+}
 
-.lead-stats {
+.setting input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+}
+
+
+/* ---- statistics -------------------------------------------------------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.stat {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+
+/* Four tiles share a narrow panel: a label too long is cut, not wrapped. */
+.stat dt {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* The daily limit: a row of its own, its name and value side by side. */
+.stat--wide {
+  grid-column: 1 / -1;
   display: flex;
-  align-items: center;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.lead-stats__text {
-  flex: 1;
-  min-width: 0;
-  font-size: 11.5px;
-  color: var(--text-muted);
+.stat--wide dd {
+  font-size: 14px;
+}
+
+/* The limit is reached: no new company search starts today. */
+.stat--warn {
+  border-color: var(--warn);
+}
+
+.stat--warn dd {
+  color: var(--warn);
 }
 
 /* ---- manual labeling / records ----------------------------------------- */

@@ -163,3 +163,12 @@ export function parseCompaniesFile(text) {
 export function logoFileKey(path) {
   return String(path ?? "").split(/[\\/]/).pop().trim().toLowerCase();
 }
+
+// Whether the file is read as a CSV (parseCompaniesCsv) with a `logo`
+// column, whatever its cells hold.
+export function hasLogoColumn(text) {
+  const columns = companiesCsvColumns(text);
+  if (!columns) return false;
+  const fields = columns.mapped.map(({ field }) => field);
+  return fields.includes(LOGO_COLUMN) && fields.some((field) => KEY_COLUMNS.includes(field));
+}
