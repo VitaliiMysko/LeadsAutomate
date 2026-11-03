@@ -1,8 +1,8 @@
 import {
-  COLUMNS,
   POOL,
   createEmptyBoard,
   sanitizeBoard,
+  getColumn,
   getPool,
   moveTitle,
   moveTitleToGroup,
@@ -11,33 +11,44 @@ import {
   ungroup,
   setEntryCount,
   renameGroup,
+  addColumn,
+  removeColumn,
+  renameColumn,
+  moveColumn,
+  setColumnCount,
+  setCompanyLimit,
+  getCompanyLimit,
   addTitle,
   isManualTitle,
   isGroup,
   columnTitles,
-  clampCount,
-  getColumnPlan,
+  getBoardPlan,
   hasJobTitles,
   boardToFile,
   boardFromFile,
 } from "../../utils/priority-board.js";
-import { LEADS_COUNT, STORAGE_KEYS } from "../../constants/config.js";
+import { LEADS_COUNT, COMPANY_LIMIT, STORAGE_KEYS } from "../../constants/config.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
 
 // "Job list" (titles from the Sales Navigator "Current job title" filter)
-// and the Management / Technical priority columns, filled by drag and drop.
-// A column holds single titles and groups of titles, each with its own
-// lead count.
-let board = createEmptyBoard();
-let leadsCount = { management: LEADS_COUNT.default, technical: LEADS_COUNT.default };
+// and the user's priority columns, filled by drag and drop. A column holds
+// single titles and groups of titles, each with its own lead count; the
+// columns can be added, removed, renamed and reordered. Leads per company
+// caps the leads of one company over all the columns.
+let board = createEmptyBoard(LEADS_COUNT, COMPANY_LIMIT);
 let filterTitles = [];
 let filterTitlesKnown = false;
 let elements = null;
+// Column id → { root, name, count, list, addInput, left, right, remove },
+// kept across renders so typed text and focus survive them.
+const columnViews = new Map();
 // { title } or { group } while something is dragged.
 let dragged = null;
 let dropIndicator = null;
+// Number of column colors in styles.css ([data-color]).
+export const COLUMN_COLORS = 4;
 
 function persistBoard() {
   saveValue(STORAGE_KEYS.board, board);
@@ -47,6 +58,18 @@ function applyBoard(next) {
   board = next;
   persistBoard();
   render();
+}
+
+function entriesOf(columnId) {
+  return getColumn(board, columnId)?.entries ?? [];
+}
+
+function columnIndex(columnId) {
+  return board.columns.findIndex((column) => column.id === columnId);
+}
+
+function columnName(columnId) {
+  return getColumn(board, columnId)?.name ?? columnId;
 }
 
 function createChip(title) {
@@ -93,12 +116,12 @@ function createCountInput(column, index, label) {
   input.className = "entry-count";
   input.min = LEADS_COUNT.min;
   input.max = LEADS_COUNT.max;
-  input.value = board[column][index].count;
+  input.value = entriesOf(column)[index].count;
   input.title = label;
   input.setAttribute("aria-label", label);
   input.addEventListener("change", () => {
     board = setEntryCount(board, column, index, input.value, LEADS_COUNT);
-    input.value = board[column][index].count;
+    input.value = entriesOf(column)[index].count;
     persistBoard();
   });
   return input;
@@ -146,7 +169,7 @@ function createSingleItem(column, entry, index) {
         "Move down",
         "↓",
         () => applyBoard(moveTitle(board, title, column, index + 1)),
-        index === board[column].length - 1
+        index === entriesOf(column).length - 1
       ),
       createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
       createIconButton(isManual ? "Remove" : "Back to Job list", "×", () => applyBoard(moveTitle(board, title, POOL)))
@@ -162,7 +185,7 @@ function createGroupTitle(column, group, title, position) {
   item.dataset.title = title;
   decorateTitle(item, title);
 
-  const groupIndex = board[column].indexOf(group);
+  const groupIndex = entriesOf(column).indexOf(group);
   item.append(
     createActions(
       createIconButton("Move up in the group", "↑", () => applyBoard(moveTitleToGroup(board, title, group.id, position - 1)), position === 0),
@@ -195,7 +218,7 @@ function createGroupItem(column, group, index) {
   name.setAttribute("aria-label", "Group name");
   name.addEventListener("change", () => {
     board = renameGroup(board, group.id, name.value);
-    name.value = board[column][index].name;
+    name.value = entriesOf(column)[index].name;
     persistBoard();
   });
 
@@ -209,7 +232,7 @@ function createGroupItem(column, group, index) {
         "Move down",
         "↓",
         () => applyBoard(moveGroup(board, group.id, column, index + 1)),
-        index === board[column].length - 1
+        index === entriesOf(column).length - 1
       ),
       createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
       createIconButton("Ungroup", "✂", () => applyBoard(ungroup(board, group.id, LEADS_COUNT)))
@@ -233,26 +256,180 @@ const ADD_OUTCOME_MESSAGES = {
   moved: (title, column) => `"${title}" moved to ${column}`,
 };
 
-function initAddForms() {
-  for (const column of COLUMNS) {
-    const form = elements.addForms[column];
-    const input = form.querySelector("input");
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const result = addTitle(board, input.value, column, filterTitles, LEADS_COUNT);
-      if (result.outcome === "empty") return;
-      if (result.outcome === "exists") {
-        log.warn(`"${result.title}" is already in ${column}`);
-        input.select();
-        return;
-      }
-      applyBoard(result.board);
-      // Added at the end of the column, maybe below the visible part of the panel.
-      const list = elements.columns[column];
-      list.lastElementChild?.scrollIntoView({ block: "nearest" });
-      input.value = "";
-      log.info(ADD_OUTCOME_MESSAGES[result.outcome](result.title, column));
-    });
+function initAddForm(form, input, column) {
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const result = addTitle(board, input.value, column, filterTitles, LEADS_COUNT);
+    if (result.outcome === "empty") return;
+    if (result.outcome === "exists") {
+      log.warn(`"${result.title}" is already in ${columnName(column)}`);
+      input.select();
+      return;
+    }
+    applyBoard(result.board);
+    // Added at the end of the column, maybe below the visible part of the panel.
+    columnViews.get(column).list.lastElementChild?.scrollIntoView({ block: "nearest" });
+    input.value = "";
+    log.info(ADD_OUTCOME_MESSAGES[result.outcome](result.title, columnName(column)));
+  });
+}
+
+// --- columns ---------------------------------------------------------------
+
+// The column's DOM: its head (name, lead count, ← → × buttons), the ranked
+// list and the Add job title form. Built once per column.
+function createColumnView(column) {
+  const root = document.createElement("div");
+  root.className = "column";
+  root.dataset.column = column;
+
+  const head = document.createElement("div");
+  head.className = "column__head";
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.className = "column__name";
+  name.addEventListener("change", () => {
+    const before = columnName(column);
+    board = renameColumn(board, column, name.value);
+    name.value = columnName(column);
+    if (name.value === before) return;
+    log.info(`Column "${before}" renamed to "${name.value}"`);
+    applyBoard(board);
+  });
+  name.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") name.blur();
+  });
+
+  // Saved without re-rendering, so the spin buttons keep working.
+  const countField = document.createElement("label");
+  countField.className = "count-field";
+  const countLabel = document.createElement("span");
+  countLabel.textContent = "Leads";
+  const count = document.createElement("input");
+  count.type = "number";
+  count.inputMode = "numeric";
+  count.min = LEADS_COUNT.min;
+  count.max = LEADS_COUNT.max;
+  count.addEventListener("change", () => {
+    board = setColumnCount(board, column, count.value, LEADS_COUNT);
+    count.value = getColumn(board, column).count;
+    persistBoard();
+  });
+  countField.append(countLabel, count);
+
+  // Moved buttons lose focus with the column's move; given back for the
+  // keyboard.
+  const shift = (step, button) => {
+    applyBoard(moveColumn(board, column, columnIndex(column) + step));
+    if (!button.disabled) button.focus();
+  };
+  const left = createIconButton("Move column left (higher priority)", "←", () => shift(-1, left));
+  const right = createIconButton("Move column right (lower priority)", "→", () => shift(1, right));
+  const remove = createIconButton("Remove column", "×", () => handleRemoveColumn(column, remove));
+  remove.addEventListener("blur", () => disarm(remove));
+  remove.addEventListener("mouseleave", () => disarm(remove));
+  const actions = document.createElement("span");
+  actions.className = "column__actions";
+  actions.append(left, right, remove);
+
+  head.append(name, countField, actions);
+
+  const list = document.createElement("ol");
+  list.className = "rank-list drop-zone";
+  initDropZone(list, column);
+
+  const form = document.createElement("form");
+  form.className = "add-title";
+  form.autocomplete = "off";
+  const addInput = document.createElement("input");
+  addInput.type = "text";
+  addInput.placeholder = "Add job title";
+  const addButton = document.createElement("button");
+  addButton.type = "submit";
+  addButton.className = "add-title__btn";
+  addButton.title = "Add";
+  addButton.setAttribute("aria-label", "Add");
+  addButton.textContent = "+";
+  form.append(addInput, addButton);
+  initAddForm(form, addInput, column);
+
+  root.append(head, list, form);
+  const view = { root, name, count, countField, list, addInput, left, right, remove };
+  columnViews.set(column, view);
+  return view;
+}
+
+function disarm(button) {
+  if (!button.classList.contains("icon-btn--armed")) return;
+  button.classList.remove("icon-btn--armed");
+  button.textContent = "×";
+}
+
+// A column holding titles is removed on a second click, so a slip of the
+// mouse doesn't send its titles back to the Job list.
+function handleRemoveColumn(column, button) {
+  const name = columnName(column);
+  const titles = columnTitles(board, column).length;
+  if (titles && !button.classList.contains("icon-btn--armed")) {
+    button.classList.add("icon-btn--armed");
+    button.textContent = "Remove?";
+    return;
+  }
+  applyBoard(removeColumn(board, column));
+  const back = titles === 1 ? "its title went" : `its ${titles} titles went`;
+  log.info(`Column "${name}" removed${titles ? `; ${back} back to the Job list` : ""}`);
+}
+
+function handleAddColumn() {
+  const { board: next, id } = addColumn(board, "", LEADS_COUNT);
+  applyBoard(next);
+  log.info(`Column "${columnName(id)}" added`);
+  const { name } = columnViews.get(id);
+  name.scrollIntoView({ block: "nearest" });
+  name.focus();
+  name.select();
+}
+
+function renderColumn(column, position) {
+  const view = columnViews.get(column.id) ?? createColumnView(column.id);
+  view.root.dataset.color = position % COLUMN_COLORS;
+  if (document.activeElement !== view.name) view.name.value = column.name;
+  if (document.activeElement !== view.count) view.count.value = column.count;
+  view.name.setAttribute("aria-label", `Name of the column "${column.name}"`);
+  view.countField.title = `How many ${column.name} leads to take per search`;
+  view.list.setAttribute("aria-label", `${column.name} job titles by priority`);
+  view.addInput.setAttribute("aria-label", `Add a ${column.name} job title`);
+  view.left.disabled = position === 0;
+  view.right.disabled = position === board.columns.length - 1;
+  view.remove.disabled = board.columns.length < 2;
+  view.remove.title = view.remove.disabled ? "The last column can't be removed" : "Remove column (its titles go back to the Job list)";
+
+  const items = column.entries.map((entry, index) =>
+    isGroup(entry) ? createGroupItem(column.id, entry, index) : createSingleItem(column.id, entry, index)
+  );
+  if (!items.length) {
+    const placeholder = document.createElement("li");
+    placeholder.className = "rank-list__placeholder";
+    placeholder.textContent = "Drag job titles here or type one below";
+    items.push(placeholder);
+  }
+  view.list.replaceChildren(...items);
+  return view.root;
+}
+
+// Reuses each column's view; the board's children are replaced only when the
+// columns changed, since moving an element takes the focus off it.
+function renderColumns() {
+  for (const [id, view] of columnViews) {
+    if (getColumn(board, id)) continue;
+    view.root.remove();
+    columnViews.delete(id);
+  }
+  const roots = board.columns.map(renderColumn);
+  const current = [...elements.board.children];
+  if (current.length !== roots.length || roots.some((root, index) => current[index] !== root)) {
+    elements.board.replaceChildren(...roots);
   }
 }
 
@@ -267,21 +444,36 @@ function render() {
   // Shown in the section header, so the counts stay visible when it's collapsed.
   elements.sectionSummary.textContent =
     (filterTitlesKnown ? `${filterTitles.length} in filter · ` : "") +
-    `Management ${columnTitles(board, "management").length} · Technical ${columnTitles(board, "technical").length}`;
+    board.columns.map((column) => `${column.name} ${columnTitles(board, column.id).length}`).join(" · ") +
+    (getCompanyLimit(board) == null ? "" : ` · max ${getCompanyLimit(board)} per company`);
+  renderCompanyLimit();
+  renderColumns();
+}
 
-  for (const column of COLUMNS) {
-    const list = elements.columns[column];
-    const items = board[column].map((entry, index) =>
-      isGroup(entry) ? createGroupItem(column, entry, index) : createSingleItem(column, entry, index)
-    );
-    if (!items.length) {
-      const placeholder = document.createElement("li");
-      placeholder.className = "rank-list__placeholder";
-      placeholder.textContent = "Drag job titles here or type one below";
-      items.push(placeholder);
-    }
-    list.replaceChildren(...items);
-  }
+// --- leads per company -----------------------------------------------------
+
+function renderCompanyLimit() {
+  elements.companyLimitToggle.checked = board.companyLimit.enabled;
+  elements.companyLimitInput.value = board.companyLimit.value;
+  elements.companyLimitInput.disabled = !board.companyLimit.enabled;
+}
+
+function handleCompanyLimitChange() {
+  board = setCompanyLimit(
+    board,
+    { enabled: elements.companyLimitToggle.checked, value: elements.companyLimitInput.value },
+    COMPANY_LIMIT
+  );
+  applyBoard(board);
+  const limit = getCompanyLimit(board);
+  log.info(limit == null ? "Leads per company: no limit" : `Leads per company: at most ${limit}`);
+}
+
+function initCompanyLimit() {
+  elements.companyLimitInput.min = COMPANY_LIMIT.min;
+  elements.companyLimitInput.max = COMPANY_LIMIT.max;
+  elements.companyLimitToggle.addEventListener("change", handleCompanyLimitChange);
+  elements.companyLimitInput.addEventListener("change", handleCompanyLimitChange);
 }
 
 // --- drag and drop ---------------------------------------------------------
@@ -395,32 +587,21 @@ function initDragSources(container) {
   });
 }
 
-// --- leads count -----------------------------------------------------------
-
-function initCountInputs() {
-  for (const column of COLUMNS) {
-    const input = elements.countInputs[column];
-    input.min = LEADS_COUNT.min;
-    input.max = LEADS_COUNT.max;
-    input.value = leadsCount[column];
-    input.addEventListener("change", () => {
-      leadsCount = { ...leadsCount, [column]: clampCount(input.value, LEADS_COUNT) };
-      input.value = leadsCount[column];
-      saveValue(STORAGE_KEYS.leadsCount, leadsCount);
-    });
-  }
-}
-
 // --- board file ------------------------------------------------------------
 
 function describeColumns() {
-  return COLUMNS.map(
-    (column) => `${column} ${board[column].length} items (${columnTitles(board, column).length} titles), ${leadsCount[column]} leads`
-  ).join("; ");
+  const limit = getCompanyLimit(board);
+  return [
+    ...board.columns.map(
+      (column) =>
+        `${column.name} ${column.entries.length} items (${columnTitles(board, column.id).length} titles), ${column.count} leads`
+    ),
+    limit == null ? "no limit of leads per company" : `at most ${limit} leads per company`,
+  ].join("; ");
 }
 
 function handleSaveFile() {
-  const text = JSON.stringify(boardToFile(board, leadsCount), null, 2);
+  const text = JSON.stringify(boardToFile(board), null, 2);
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
@@ -430,21 +611,19 @@ function handleSaveFile() {
   log.info(`Job titles saved to a file: ${describeColumns()}`);
 }
 
-// Replaces both columns and their lead counts with the file's.
+// Replaces all the columns (names, order, lead counts, titles) with the file's.
 async function handleLoadFile() {
   const file = elements.fileInput.files?.[0];
   elements.fileInput.value = "";
   if (!file) return;
   try {
-    ({ board, leadsCount } = boardFromFile(await file.text(), LEADS_COUNT));
+    board = boardFromFile(await file.text(), LEADS_COUNT, COMPANY_LIMIT);
   } catch (error) {
     log.error(`Could not load job titles from "${file.name}": ${error.message}`);
     status.error(`"${file.name}" is not a job titles file`);
     return;
   }
   persistBoard();
-  saveValue(STORAGE_KEYS.leadsCount, leadsCount);
-  for (const column of COLUMNS) elements.countInputs[column].value = leadsCount[column];
   render();
   log.info(`Job titles loaded from "${file.name}": ${describeColumns()}`);
   status.success(`Job titles loaded from "${file.name}"`);
@@ -454,25 +633,24 @@ async function handleLoadFile() {
 
 export async function initJobBoard(boardElements) {
   elements = boardElements;
-  board = sanitizeBoard(await loadValue(STORAGE_KEYS.board, createEmptyBoard()), LEADS_COUNT);
-  const storedCount = await loadValue(STORAGE_KEYS.leadsCount, {});
-  leadsCount = {
-    management: clampCount(storedCount.management ?? LEADS_COUNT.default, LEADS_COUNT),
-    technical: clampCount(storedCount.technical ?? LEADS_COUNT.default, LEADS_COUNT),
-  };
+  // A board saved before the columns could be changed kept the Management and
+  // Technical lead counts apart; sanitizeBoard takes them into its columns.
+  const stored = await loadValue(STORAGE_KEYS.board, null);
+  const legacyCount = await loadValue(STORAGE_KEYS.leadsCount, {});
+  board = sanitizeBoard(stored && { leadsCount: legacyCount, ...stored }, LEADS_COUNT, COMPANY_LIMIT);
+  persistBoard();
 
   // The section (Job list + columns) collapses on a header click; the
   // open / closed state is remembered.
   elements.section.open = await loadValue(STORAGE_KEYS.jobSectionOpen, true);
   elements.section.addEventListener("toggle", () => saveValue(STORAGE_KEYS.jobSectionOpen, elements.section.open));
 
-  initCountInputs();
-  initAddForms();
+  initCompanyLimit();
+  elements.addColumnButton.addEventListener("click", handleAddColumn);
   elements.saveButton.addEventListener("click", handleSaveFile);
   elements.fileInput.addEventListener("change", handleLoadFile);
   initDragSources(elements.root);
   initDropZone(elements.pool, POOL);
-  for (const column of COLUMNS) initDropZone(elements.columns[column], column);
   render();
 }
 
@@ -484,17 +662,15 @@ export function setFilterTitles(titles, message = "") {
   render();
 }
 
-// Snapshot for the search logic: per column, the entries by priority
-// ([{ name, titles, count }]) and the wanted lead count.
+// Snapshot for the search logic: `columns`, in priority order, each with its
+// entries by priority ([{ name, titles, count }]) and its wanted lead count
+// (getBoardPlan); `companyLimit`, the leads one company may give in all, or
+// null.
 export function getJobPriorities() {
-  return {
-    management: getColumnPlan(board, "management"),
-    technical: getColumnPlan(board, "technical"),
-    leadsCount: { ...leadsCount },
-  };
+  return { columns: getBoardPlan(board), companyLimit: getCompanyLimit(board) };
 }
 
-// False when both columns are empty; the Job titles section is then opened
+// False when every column is empty; the Job titles section is then opened
 // and shown, so the user sees where to add titles.
 export function ensureJobTitles() {
   if (hasJobTitles(board)) return true;

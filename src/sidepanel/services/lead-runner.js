@@ -1,6 +1,5 @@
 import { isLeadUrl, isPeopleSearchUrl, pageOf, urlWithPage } from "../../utils/restli-query.js";
-import { nextPick, countFound, wantsMoreLeads } from "../../utils/lead-picker.js";
-import { COLUMNS } from "../../utils/priority-board.js";
+import { nextPick, countFound, wantsMoreLeads, companyLimitReached, leadProgress } from "../../utils/lead-picker.js";
 import { TIMING, LEADS_PER_PAGE } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
 import { getSearchTab, sendToContent, FatalError, RateLimitError } from "./tab-service.js";
@@ -154,43 +153,56 @@ async function readPage(tabId, page, offset, log) {
   return leads;
 }
 
-// Takes leads of the search results by the Management and Technical
-// priorities (`priorities` from getJobPriorities), one at a time in priority
-// order (lead-picker.js): opens the lead, with a pause before the click, then
-// has Lead generator extract it, find its email and save it. Only a saved
-// lead counts toward its column's and its item's lead count; otherwise the
-// next matching lead is tried. Reads up to `pages` results pages, from the
-// one shown: the next page only while a column still wants leads (and the
-// page was full). Returns { leads, pages, tried, columns, saved }.
+// Takes leads of the search results by the job-title columns (`columns`
+// and `companyLimit` from getJobPriorities), one at a time in priority order
+// (lead-picker.js): opens the lead, with a pause before the click, then has
+// Lead generator extract it, find its email and save it. Only a saved lead
+// counts toward its column's and its item's lead count, and toward the
+// company limit; otherwise the next matching lead is tried. Stops once the
+// company limit is reached. Reads up to `pages` results pages, from the one
+// shown: the next page only while a column still wants leads (and the page
+// was full). Returns { leads, pages, tried, columns, saved, wanted,
+// limitReached }, `columns` from countFound, `wanted` the leads the company
+// was asked for (the columns' counts, at most the company limit).
 // `onPageRead()` is called after each results page read,
 // `onLeadTried(saved, isNew)` after each lead tried, for the statistics
-// (`isNew` false for a lead saved by an earlier search).
+// (`isNew` false for a lead saved by an earlier search), and
+// `onProgress(progress)` (leadProgress) before the first lead and after
+// each one.
 // Throws FatalError when Lead generator can't be used or the tab is
 // unusable; a lead that fails is logged and skipped.
-export async function selectLeads(priorities, { log, pages = 1, onPageRead = () => {}, onLeadTried = () => {} }) {
+export async function selectLeads(
+  { columns, companyLimit },
+  { log, pages = 1, onPageRead = () => {}, onLeadTried = () => {}, onProgress = () => {} }
+) {
   const tab = await getSearchTab();
   const searchUrl = tab.url;
   const firstPage = pageOf(searchUrl);
   const lastPage = firstPage + pages - 1;
-  const { leadsCount } = priorities;
 
-  for (const column of COLUMNS) {
-    const items = priorities[column].map((item) => `${item.name} ×${item.count}`).join(", ");
-    log.debug(`Plan ${column} (${leadsCount[column]} leads): ${items || "no titles"}`);
+  for (const column of columns) {
+    const items = column.entries.map((item) => `${item.name} ×${item.count}`).join(", ");
+    log.debug(`Plan ${column.name} (${column.count} leads): ${items || "no titles"}`);
   }
+  log.debug(companyLimit == null ? "Plan: no limit of leads per company" : `Plan: at most ${companyLimit} leads per company`);
   const leadGenerator = await connectLeadGenerator(tab.id, log);
 
   const allLeads = [];
   const tried = [];
+  const leadTried = (saved, isNew) => {
+    onLeadTried(saved, isNew);
+    onProgress(leadProgress(columns, tried, companyLimit));
+  };
+  onProgress(leadProgress(columns, tried, companyLimit));
   let page = firstPage;
   try {
     for (;;) {
       const leads = await readPage(tab.id, page, allLeads.length, log);
       allLeads.push(...leads);
       onPageRead();
-      await tryLeads(tab.id, leadGenerator, leads, priorities, tried, onLeadTried, log);
+      await tryLeads(tab.id, leadGenerator, leads, columns, companyLimit, tried, leadTried, log);
 
-      if (!wantsMoreLeads(priorities, leadsCount, tried)) break;
+      if (!wantsMoreLeads(columns, tried, companyLimit)) break;
       if (page >= lastPage) {
         if (pages > 1) log.info(`Read the ${pages} results pages set`);
         break;
@@ -209,25 +221,31 @@ export async function selectLeads(priorities, { log, pages = 1, onPageRead = () 
     });
   }
 
-  const columns = countFound(tried, leadsCount);
-  for (const column of COLUMNS) {
-    const { wanted, found } = columns[column];
-    const names = tried.filter((item) => item.column === column && item.saved).map((item) => `"${allLeads[item.index].name}"`);
-    (found < wanted ? log.warn : log.info)(`${column}: ${found} of ${wanted} leads saved${names.length ? `: ${names.join(", ")}` : ""}`);
+  const found = countFound(tried, columns);
+  const saved = tried.filter((item) => item.saved).length;
+  const limitReached = companyLimitReached(tried, companyLimit);
+  for (const [id, column] of Object.entries(found)) {
+    const names = tried.filter((item) => item.column === id && item.saved).map((item) => `"${allLeads[item.index].name}"`);
+    // Columns short of their count are expected once the company limit is reached.
+    (column.found < column.wanted && !limitReached ? log.warn : log.info)(
+      `${column.name}: ${column.found} of ${column.wanted} leads saved${names.length ? `: ${names.join(", ")}` : ""}`
+    );
   }
+  if (limitReached) log.info(`Leads per company reached: ${saved} of ${companyLimit}`);
   return {
     leads: allLeads.length,
     pages: page - firstPage + 1,
     tried,
-    columns,
-    saved: tried.filter((item) => item.saved).length,
+    columns: found,
+    saved,
+    wanted: leadProgress(columns, tried, companyLimit).wanted,
+    limitReached,
   };
 }
 
 // Tries the leads of one results page in priority order, adding to `tried`.
-async function tryLeads(tabId, leadGenerator, leads, priorities, tried, onLeadTried, log) {
-  const { leadsCount } = priorities;
-  for (let pick; (pick = nextPick(leads, priorities, leadsCount, tried)); ) {
+async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, tried, onLeadTried, log) {
+  for (let pick; (pick = nextPick(leads, columns, tried, companyLimit)); ) {
     const attempt = { index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: false, isNew: false };
     tried.push(attempt);
     await sleep(randomBetween(...TIMING.beforeLeadClickMs));
@@ -241,6 +259,6 @@ async function tryLeads(tabId, leadGenerator, leads, priorities, tried, onLeadTr
       log.warn(`"${pick.lead.name}": ${error.message}`);
     }
     onLeadTried(attempt.saved, attempt.isNew);
-    if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.column} lead for "${pick.entry}"`);
+    if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.columnName} lead for "${pick.entry}"`);
   }
 }
