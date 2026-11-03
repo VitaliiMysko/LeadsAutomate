@@ -40,6 +40,12 @@ export const TIMING = {
 export const LEAD_GENERATOR = {
   name: "Lead generator",
   pingTimeoutMs: 5000,
+  // Random pause before opening its panel when it isn't open on the tab.
+  beforeOpenPanelMs: [800, 2000],
+  // How long its opened panel may take to load and answer.
+  panelOpenTimeoutMs: 15000,
+  // Pause between two pings while the opened panel loads.
+  panelPollMs: 500,
 };
 
 // How many shorter names (name-variants.js) a search may try after the name
