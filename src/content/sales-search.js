@@ -1,7 +1,7 @@
 window.leadsAutomate = window.leadsAutomate || {};
 
-// Executes single UI steps on the Sales Navigator people-search page on the
-// side panel's request. The side panel orchestrates the sequence and checks
+// Executes single UI steps on the Sales Navigator people-search page (and
+// reads the company search's results) on the side panel's request. The side panel orchestrates the sequence and checks
 // each step's outcome against the tab URL (where Sales Navigator records the
 // applied filters), so these handlers only act on the DOM and report back.
 if (!window.leadsAutomate.salesSearchInit) {
@@ -432,6 +432,49 @@ if (!window.leadsAutomate.salesSearchInit) {
     return { first: (row && leadLink(row)?.href) || "", noMatches: false };
   }
 
+  function companyRows() {
+    const container = queryFirst(document, SELECTORS.resultsContainer) || document;
+    return queryAllFirst(container, SELECTORS.companyRow);
+  }
+
+  function companyLink(row) {
+    const found = queryFirst(row, SELECTORS.companyLink);
+    return found?.closest("a") || found;
+  }
+
+  function describeCompany(row, index) {
+    const link = companyLink(row);
+    return {
+      index,
+      name: rowText(row, SELECTORS.companyName) || (link?.innerText || "").replace(/\s+/g, " ").trim(),
+      href: link?.href || "",
+    };
+  }
+
+  // The companies of a company search's results page, in order, read like
+  // readLeads: a row not filled in yet is scrolled into view first, at a
+  // reading pace. A row that still has no link has an empty `href`.
+  async function readCompanies() {
+    if (noResultsShown()) return { companies: [], noMatches: true };
+    const companies = [];
+    for (const [index, row] of companyRows().entries()) {
+      if (!companyLink(row)) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+        await waitFor(() => companyLink(row), { timeout: 4000, description: "the company's details" }).catch(() => null);
+        await humanDelay(200, 500);
+      }
+      companies.push(describeCompany(row, index));
+    }
+    return { companies };
+  }
+
+  // resultsMarker for a company search: the link of its first company.
+  async function companyResultsMarker() {
+    if (noResultsShown()) return { first: "", noMatches: true };
+    const row = companyRows()[0];
+    return { first: (row && companyLink(row)?.href) || "", noMatches: false };
+  }
+
   // Clicks the pagination button of results page `page` (else Next, when
   // `next` says it's the following page). Fallback for when the page didn't
   // follow the URL; `clicked` is false when there's no such button.
@@ -477,6 +520,8 @@ if (!window.leadsAutomate.salesSearchInit) {
     openLead,
     leadPanelState,
     resultsMarker,
+    readCompanies,
+    companyResultsMarker,
     clickResultsPage,
     isFilterReady,
     typeFilterValue,

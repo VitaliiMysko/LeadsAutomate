@@ -48,3 +48,17 @@ export function parseCsv(input) {
   }
   return rows.filter((cells) => cells.some((cell) => cell.trim() !== ""));
 }
+
+// A field is quoted when it holds a delimiter ("," or ";", so the file reads
+// back whichever one parseCsv detects), a quote, a line break or surrounding
+// spaces.
+function csvField(value) {
+  const text = String(value ?? "");
+  return /[",;\r\n]|^\s|\s$/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+// Inverse of parseCsv: ","-separated rows with CRLF line ends, as RFC 4180
+// (and Excel) expect.
+export function toCsv(rows) {
+  return rows.map((cells) => cells.map(csvField).join(",")).join("\r\n") + "\r\n";
+}

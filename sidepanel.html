@@ -160,7 +160,7 @@
           <input type="checkbox" id="daily-limit-toggle" />
           <span>Daily limit of found leads</span>
         </label>
-        <input type="number" id="daily-limit" inputmode="numeric" aria-label="Daily limit of found leads" />
+        <input type="number" id="daily-limit" class="count-field__input--wide" inputmode="numeric" aria-label="Daily limit of found leads" />
       </div>
     </section>
 
@@ -199,6 +199,26 @@
         </div>
       </div>
     </details>
+
+    <section class="card" data-collapse="companyExport">
+      <div class="card__head"><h2>Companies export</h2></div>
+      <p class="hint">On a Sales Navigator company search (<code>/sales/search/company</code>): saves its companies as a CSV file (<code>company_id</code>, <code>company_name</code>), from the results page shown, 25 per page. The file loads back as a companies file.</p>
+      <label class="count-field setting" title="How many companies to export; Sales Navigator shows 25 per results page, up to 100 pages">
+        <span>Companies to export</span>
+        <input type="number" id="export-count" class="count-field__input--wide" inputmode="numeric" />
+      </label>
+      <div class="progress" title="Companies exported">
+        <div class="progress__track"><div id="export-progress-fill" class="progress__fill"></div></div>
+        <span id="export-progress-text" class="progress__text">0 / 0</span>
+      </div>
+      <p id="export-position" class="hint"></p>
+      <div class="button-row">
+        <button type="button" id="export-start-btn" class="btn btn--primary" title="Start a new export from the results page shown">Export</button>
+        <button type="button" id="export-continue-btn" class="btn btn--primary" title="Go on with the unfinished export after its last company">Continue</button>
+        <button type="button" id="export-stop-btn" class="btn btn--danger" title="Stop after the current page; Continue goes on from there">Stop</button>
+        <button type="button" id="export-download-btn" class="btn btn--secondary" title="Download the companies exported so far as a CSV file">Download CSV</button>
+      </div>
+    </section>
 
     <section class="card log-card" data-collapse="log">
       <div class="card__head">

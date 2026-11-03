@@ -11,6 +11,7 @@ import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
 import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
+import { startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
@@ -443,17 +444,17 @@ function finishStatus(name, result) {
   else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} saved`);
 }
 
+// `busy` follows the tab's activity (activity.js): set by this card's
+// searches and by the companies export alike.
 async function withBusy(task) {
-  busy = true;
+  if (!startActivity("search")) return;
   stopRequested = false;
   clearRateLimit();
-  updateControls();
   try {
     return await task();
   } finally {
-    busy = false;
     stopRequested = false;
-    updateControls();
+    endActivity("search");
   }
 }
 
@@ -876,6 +877,10 @@ export async function initSearchControls(controlElements) {
   subscribeMatchRecords(renderRecordCounts);
   renderRecordCounts();
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
+  onActivityChange((activity) => {
+    busy = activity !== null;
+    updateControls();
+  });
 
   updateControls();
   if (unresolved.length) log.warn(`${unresolved.length} companies still need a manual company choice`);

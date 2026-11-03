@@ -1,8 +1,8 @@
 # Leads Automate
 
-Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. For each company it takes leads by job-title priority and saves them through the [Lead generator](../LeadGenerator) extension.
+Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. For each company it takes leads by job-title priority and saves them through the [Lead generator](../LeadGenerator) extension. On a **company search** (`linkedin.com/sales/search/company`) it exports the companies to a CSV file.
 
-## Features (v0.6)
+## Features (v0.7)
 
 The panel shows these sections, top to bottom:
 1. status area;
@@ -11,7 +11,8 @@ The panel shows these sections, top to bottom:
 4. **Statistics**: the results pages read, the leads processed, found, and the success rate (see *Statistics* below);
 5. **Settings**: the settings of every search (*Result pages to check*, *Daily limit of found leads*);
 6. **Job titles**: a collapsible section holding the Job list and the job title columns (Management and Technical to start with). Click its header to hide or show it. The header always shows the counts (titles in the filter, titles in each column), and the open / closed state is remembered;
-7. Log.
+7. **Companies export** (see below);
+8. Log.
 
 Every section except the status area can be collapsed to its header: click the header (or its title) to hide or show the rest; the header's own buttons (Reset, Copy, Clear) still work while it's collapsed. The open / closed state of each section is remembered.
 
@@ -101,11 +102,17 @@ Every section except the status area can be collapsed to its header: click the h
   - `csv` (`companyId`, `linkedin`, `hasLogo` from the companies file; `companyId` there is the right answer for checking `companyId` of the choice), `leads` (leads on the page after the choice) and `pickMs` (how long a manual pick took).
 
   Only the last 5000 records of each kind are kept. The records carry a format version: when the panel starts and finds records of an older format, it removes them and logs how many it removed.
+- **Companies export** (its own card): saves the companies of a Sales Navigator company search (`linkedin.com/sales/search/company`) as a CSV file with the columns `company_id` (LinkedIn company id) and `company_name`. The file loads back as a *Companies file*, each company then searched by its id.
+  - **Companies to export** (1–2500, 25 by default; remembered): Sales Navigator shows 25 companies per results page, up to 100 pages. **Export** starts from the page the tab shows, reads each page's companies (scrolling the list so every row renders, as for leads) and goes on to the next page the same way lead selection does (a random 2.5–5 s pause, the URL's `page` parameter, else the pagination button), until it has that many or the search has no more pages. The file (`companies-<date>.csv`, UTF-8 with a BOM so Excel reads the names) is then downloaded, and the status area says how many companies it holds.
+  - The id is read from the link of the company's name (`/sales/company/<id>`, `companyLink` in `src/content/selectors.js`), not from its text. A company already exported is never taken twice.
+  - **Resuming**: the export is kept after every page read (the companies taken, the last one with its position, the page to read next), also when the panel is closed. When it stops early, because LinkedIn refused a request (HTTP 429, *Too many requests*), a page step failed, a company's row didn't render (the page is read once more first) or **Stop** was clicked (it stops after the current page), the card shows the last company exported (*Stopped after #57 "Acme" (page 3)*) and the reason. **Continue** goes on from there: it puts the tab back on the export's search and page (in-page when the tab shows that search, else by loading its URL), skips the companies already taken and keeps adding to the same export. **Download CSV** saves the companies exported so far at any time.
+  - **Export** while an unfinished export holds companies asks for a second click (*Replace?*, within 4 s), since it starts over.
+  - The export and the company searches don't run at the same time: while one runs, the other's buttons are disabled.
 - **Status area**: shows the current operation, how long it has been running, and its outcome or total time.
 - **Log**: a scrollable list with time-stamped `DEBUG` / `INFO` / `OK` / `WARN` / `ERROR` entries, with Copy (copies the visible entries) and Clear buttons. Lines marked `[page]` come from the script running on the LinkedIn page.
   - **Quick filters**: one toggle per marker with its entry count. Click a toggle to show or hide that marker, double-click it to show only that marker, or click **All** to show everything. The selection is remembered.
 
-Board (including manual titles), lead counts, company name, the companies list, the logos' hashes and thumbnails, the manual choice list, match records (key `companyMatchRecords`) and the log filter selection are kept in `chrome.storage.local`.
+Board (including manual titles), lead counts, company name, the companies list, the companies export (key `companyExport`), the logos' hashes and thumbnails, the manual choice list, match records (key `companyMatchRecords`) and the log filter selection are kept in `chrome.storage.local`.
 
 ## Install (development)
 
@@ -130,7 +137,8 @@ Requires Chrome 116+.
   - select a given option with the keyboard;
   - close the dropdown;
   - wait for results;
-  - read the leads of the results page and open one by its name.
+  - read the leads of the results page and open one by its name;
+  - read the companies of a company search's results page.
 
   The side panel decides which option to select (`src/utils/company-match.js`). All DOM selectors are in `src/content/selectors.js`; when Sales Navigator's markup changes, update them there.
 

@@ -37,6 +37,12 @@ window.leadsAutomate.SELECTORS = {
   // The "View profile" button of a locked lead (out of the user's network):
   // its page holds no details, so it's never taken.
   leadLocked: ['[data-control-name*="unlock"]', '[data-control-name*="view_profile"]', '[data-x--lead-locked]'],
+  // One row of a company (account) search's results, rendered or not yet;
+  // inside it, the link to the company's Sales Navigator page
+  // (/sales/company/<id>, the id read from it) and the company's name.
+  companyRow: ["ol.artdeco-list > li.artdeco-list__item", '[data-x-search-result="ACCOUNT"]'],
+  companyLink: ['a[data-anonymize="company-name"]', 'a[href*="/sales/company/"]'],
+  companyName: ['[data-anonymize="company-name"]'],
   // The results pagination (artdeco classes and data-test attributes aren't
   // hashed): the button of page N, then the Next button. Used only when the
   // page doesn't follow the URL's `page` parameter.

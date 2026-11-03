@@ -6,6 +6,7 @@ import { initStatus, status } from "./ui/status.js";
 import { initJobBoard, setFilterTitles } from "./ui/job-board.js";
 import { initSearchControls } from "./ui/search-controls.js";
 import { initCollapsibleCards } from "./ui/collapsible-cards.js";
+import { initCompanyExport } from "./ui/company-export.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -118,6 +119,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     columnsDialogTitle: $("columns-dialog-title"),
     columnsDialogText: $("columns-dialog-text"),
     columnsDialogOkButton: $("columns-dialog-ok-btn"),
+  });
+
+  await initCompanyExport({
+    countInput: $("export-count"),
+    progressText: $("export-progress-text"),
+    progressFill: $("export-progress-fill"),
+    position: $("export-position"),
+    startButton: $("export-start-btn"),
+    continueButton: $("export-continue-btn"),
+    stopButton: $("export-stop-btn"),
+    downloadButton: $("export-download-btn"),
   });
 
   chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
