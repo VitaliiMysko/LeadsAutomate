@@ -67,6 +67,10 @@ export const LOGO_THRESHOLDS = {
 
 export const LEADS_COUNT = { min: 0, max: 9, default: 1 };
 
+// Leads found for one company in all the columns together, when the user
+// turns the limit on (the board's companyLimit).
+export const COMPANY_LIMIT = { min: 1, max: 99, default: 5 };
+
 // How many results pages lead selection reads (Sales Navigator shows up to
 // 100 pages of LEADS_PER_PAGE leads).
 export const RESULT_PAGES = { min: 1, max: 100, default: 1 };
@@ -77,6 +81,8 @@ export const DAILY_LIMIT = { min: 1, max: 1000, default: 50 };
 
 export const STORAGE_KEYS = {
   board: "priorityBoard",
+  // Only read: the Management / Technical lead counts of boards saved before
+  // each column held its own.
   leadsCount: "leadsCount",
   companyName: "companyName",
   companyQueue: "companyQueue",

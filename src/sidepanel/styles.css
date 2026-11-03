@@ -12,6 +12,10 @@
   --mgmt-soft: #f1ebfa;
   --tech: #0f8a6c;
   --tech-soft: #e6f5f1;
+  --col3: #b8407a;
+  --col3-soft: #fbeaf2;
+  --col4: #2a72a8;
+  --col4-soft: #e6f0f8;
   --success: #1e7e34;
   --success-soft: #e7f4ea;
   --warn: #a35f00;
@@ -39,6 +43,10 @@
     --mgmt-soft: #352c47;
     --tech: #5cc9ac;
     --tech-soft: #20403a;
+    --col3: #f08cba;
+    --col3-soft: #47283a;
+    --col4: #7dbde8;
+    --col4-soft: #1f3646;
     --success: #6fcf86;
     --success-soft: #213a28;
     --warn: #f0b45a;
@@ -319,9 +327,19 @@ h2 {
   border-color: var(--accent);
 }
 
+/* Leads per company: the limit over all the columns, above them. */
+.company-limit {
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Any number of columns: two side by side in the usual panel width, more
+   wrap to the next rows; a single column fills the row. */
 .board {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 
@@ -337,14 +355,26 @@ h2 {
   border-radius: var(--radius);
 }
 
-.column:first-child {
+/* The colors cycle with the column's position (job-board.js, COLUMN_COLORS);
+   also the Company leads chips of the columns. */
+[data-color="0"] {
   --col-color: var(--mgmt);
   --col-soft: var(--mgmt-soft);
 }
 
-.column:last-child {
+[data-color="1"] {
   --col-color: var(--tech);
   --col-soft: var(--tech-soft);
+}
+
+[data-color="2"] {
+  --col-color: var(--col3);
+  --col-soft: var(--col3-soft);
+}
+
+[data-color="3"] {
+  --col-color: var(--col4);
+  --col-soft: var(--col4-soft);
 }
 
 .column__head {
@@ -355,8 +385,37 @@ h2 {
   flex-wrap: wrap;
 }
 
-.column__head h2 {
+/* The column's name, edited in place; looks like the h2 of the other cards. */
+.column__head input.column__name {
+  flex: 1 1 80px;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--col-color);
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.column__head input.column__name:hover,
+.column__head input.column__name:focus {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.column__actions {
+  display: flex;
+  margin-left: auto;
+}
+
+/* Remove column, waiting for the confirming second click. */
+.icon-btn.icon-btn--armed {
+  width: auto;
+  padding: 0 5px;
+  background: var(--error-soft);
+  color: var(--error);
+  font-weight: 600;
 }
 
 .count-field {
@@ -1001,7 +1060,7 @@ input[readonly] {
   color: var(--text);
 }
 
-/* The daily limit: a row of its own, its name and value side by side. */
+/* A row of its own (Daily limit, Company leads). */
 .stat--wide {
   grid-column: 1 / -1;
   display: flex;
@@ -1014,6 +1073,58 @@ input[readonly] {
   font-size: 14px;
 }
 
+/* Daily limit and Company leads: a progress bar toward the leads wanted. */
+.stat--progress {
+  display: block;
+}
+
+/* Kept on the right when the bar is hidden (Daily limit off). */
+.stat--progress .progress__text {
+  margin-left: auto;
+}
+
+.stat--progress dd {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.stat__company {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.stat__columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.stat__columns:empty {
+  display: none;
+}
+
+/* One column's found / wanted, in the column's color. */
+.stat__column {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--col-soft);
+  color: var(--col-color);
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat__column--done {
+  box-shadow: inset 0 0 0 1px var(--col-color);
+}
+
+.progress__fill--done {
+  background: var(--success);
+}
+
 /* The limit is reached: no new company search starts today. */
 .stat--warn {
   border-color: var(--warn);
@@ -1021,6 +1132,10 @@ input[readonly] {
 
 .stat--warn dd {
   color: var(--warn);
+}
+
+.stat--warn .progress__fill {
+  background: var(--warn);
 }
 
 /* ---- manual labeling / records ----------------------------------------- */

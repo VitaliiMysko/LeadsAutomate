@@ -1,22 +1,38 @@
 import { normalizeName } from "./text-utils.js";
 
 // Pure operations on the job-title priority board:
-// { management: [entry, ...], technical: [entry, ...], manual: [title, ...] }.
-// A column entry is either a single title, { title, count }, or a group of
-// titles close in meaning (synonyms, other languages), { id, name, titles,
-// count }. `count` is how many leads to take from that title, or from the
-// group's titles together. Each column is ordered from the highest priority
-// (index 0) to the lowest; the counts of a column may add up to more than
-// the column's own lead count. `manual` lists the titles the user typed in
-// rather than took from the Sales Navigator filter.
+// { columns: [{ id, name, count, entries: [entry, ...] }, ...], manual: [title, ...] }.
+// The columns are the user's, in priority order (the first one is tried
+// first); `count` is how many leads a column takes per search. A column
+// entry is either a single title, { title, count }, or a group of titles
+// close in meaning (synonyms, other languages), { id, name, titles, count }.
+// An entry's `count` is how many leads to take from that title, or from the
+// group's titles together. Each column's entries are ordered from the
+// highest priority (index 0) to the lowest; their counts may add up to more
+// than the column's own count. `manual` lists the titles the user typed in
+// rather than took from the Sales Navigator filter. Columns are addressed by
+// their `id`. `companyLimit`, { enabled, value }, caps the leads found for one
+// company across all the columns, when enabled.
 
-export const COLUMNS = ["management", "technical"];
 export const POOL = "pool";
 
 const DEFAULT_LIMITS = { min: 0, max: 9, default: 1 };
+const DEFAULT_COMPANY_LIMITS = { min: 1, max: 99, default: 5 };
 
-export function createEmptyBoard() {
-  return { management: [], technical: [], manual: [] };
+// The columns of a new board, and of the boards saved before the columns
+// could be changed: those had fixed `management` and `technical` keys, and
+// kept the columns' lead counts apart, as `leadsCount`.
+const LEGACY_COLUMNS = [
+  { key: "management", name: "Management" },
+  { key: "technical", name: "Technical" },
+];
+
+export function createEmptyBoard(limits = DEFAULT_LIMITS, companyLimits = DEFAULT_COMPANY_LIMITS) {
+  return {
+    columns: LEGACY_COLUMNS.map(({ name }, index) => ({ id: `c${index + 1}`, name, count: limits.default, entries: [] })),
+    manual: [],
+    companyLimit: { enabled: false, value: companyLimits.default },
+  };
 }
 
 export function isGroup(entry) {
@@ -27,9 +43,13 @@ export function entryTitles(entry) {
   return isGroup(entry) ? entry.titles : [entry.title];
 }
 
+export function getColumn(board, columnId) {
+  return board.columns.find((column) => column.id === columnId) ?? null;
+}
+
 // Every title of a column, groups flattened, in priority order.
-export function columnTitles(board, column) {
-  return board[column].flatMap(entryTitles);
+export function columnTitles(board, columnId) {
+  return getColumn(board, columnId)?.entries.flatMap(entryTitles) ?? [];
 }
 
 export function clampCount(value, limits = DEFAULT_LIMITS) {
@@ -38,27 +58,71 @@ export function clampCount(value, limits = DEFAULT_LIMITS) {
   return Math.min(Math.max(number, limits.min), limits.max);
 }
 
-function nextGroupId(board) {
-  const used = COLUMNS.flatMap((column) => board[column])
-    .filter(isGroup)
-    .map((group) => Number.parseInt(String(group.id).replace(/^g/, ""), 10))
+function cleanText(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+// The next unused id with `prefix`: "g3" when "g1" and "g2" are taken.
+function nextId(prefix, ids) {
+  const used = ids
+    .filter((id) => typeof id === "string" && id.startsWith(prefix))
+    .map((id) => Number.parseInt(id.slice(prefix.length), 10))
     .filter(Number.isFinite);
-  return `g${Math.max(0, ...used) + 1}`;
+  return `${prefix}${Math.max(0, ...used) + 1}`;
+}
+
+function nextGroupId(board) {
+  const ids = board.columns.flatMap((column) => column.entries).filter(isGroup).map((group) => group.id);
+  return nextId("g", ids);
+}
+
+function nextColumnId(board) {
+  return nextId("c", board.columns.map((column) => column.id));
 }
 
 function cloneBoard(board) {
-  const copy = { manual: [...board.manual] };
-  for (const column of COLUMNS) {
-    copy[column] = board[column].map((entry) => (isGroup(entry) ? { ...entry, titles: [...entry.titles] } : { ...entry }));
-  }
-  return copy;
+  return {
+    columns: board.columns.map((column) => ({
+      ...column,
+      entries: column.entries.map((entry) => (isGroup(entry) ? { ...entry, titles: [...entry.titles] } : { ...entry })),
+    })),
+    manual: [...board.manual],
+    companyLimit: { ...board.companyLimit },
+  };
 }
 
-// Accepts the stored board, including the older format where a column was a
-// plain list of titles. Duplicate titles, empty groups and unknown keys are
-// dropped; counts are clamped to `limits`.
-export function sanitizeBoard(board, limits = DEFAULT_LIMITS) {
-  const clean = createEmptyBoard();
+function requireColumn(board, columnId) {
+  const column = getColumn(board, columnId);
+  if (!column) throw new Error(`Unknown column: ${columnId}`);
+  return column;
+}
+
+// The stored columns; the older format's fixed Management and Technical
+// columns are read as two of them.
+function rawColumns(board, limits) {
+  if (Array.isArray(board?.columns)) return board.columns;
+  return LEGACY_COLUMNS.map(({ key, name }) => ({
+    name,
+    count: board?.leadsCount?.[key] ?? limits.default,
+    entries: board?.[key],
+  }));
+}
+
+// Accepts the stored board, including the older formats: fixed Management
+// and Technical columns (their lead counts in `leadsCount`), and columns
+// that were plain lists of titles. Duplicate titles, empty groups and
+// unknown keys are dropped; counts are clamped to `limits`; a column
+// without a name is named by its position. A board without columns gets the
+// new board's ones; one without a company limit has it off.
+export function sanitizeBoard(board, limits = DEFAULT_LIMITS, companyLimits = DEFAULT_COMPANY_LIMITS) {
+  const clean = {
+    columns: [],
+    manual: [],
+    companyLimit: {
+      enabled: board?.companyLimit?.enabled === true,
+      value: clampCount(board?.companyLimit?.value ?? companyLimits.default, companyLimits),
+    },
+  };
   const seen = new Set();
   const takeTitle = (title) => {
     if (typeof title !== "string" || seen.has(title)) return false;
@@ -66,12 +130,25 @@ export function sanitizeBoard(board, limits = DEFAULT_LIMITS) {
     return true;
   };
   const groupIds = new Set();
-  const pendingIds = [];
+  const pendingGroups = [];
+  const columnIds = new Set();
+  const pendingColumns = [];
 
-  for (const column of COLUMNS) {
-    for (const entry of Array.isArray(board?.[column]) ? board[column] : []) {
+  for (const raw of rawColumns(board, limits)) {
+    if (!raw || typeof raw !== "object") continue;
+    const column = {
+      id: typeof raw.id === "string" && raw.id && !columnIds.has(raw.id) ? raw.id : null,
+      name: cleanText(typeof raw.name === "string" ? raw.name : "") || `Column ${clean.columns.length + 1}`,
+      count: clampCount(raw.count, limits),
+      entries: [],
+    };
+    if (column.id) columnIds.add(column.id);
+    else pendingColumns.push(column);
+    clean.columns.push(column);
+
+    for (const entry of Array.isArray(raw.entries) ? raw.entries : []) {
       if (typeof entry === "string") {
-        if (takeTitle(entry)) clean[column].push({ title: entry, count: limits.default });
+        if (takeTitle(entry)) column.entries.push({ title: entry, count: limits.default });
       } else if (isGroup(entry)) {
         const titles = entry.titles.filter(takeTitle);
         if (!titles.length) continue;
@@ -82,29 +159,32 @@ export function sanitizeBoard(board, limits = DEFAULT_LIMITS) {
           count: clampCount(entry.count, limits),
         };
         if (group.id) groupIds.add(group.id);
-        else pendingIds.push(group);
-        clean[column].push(group);
+        else pendingGroups.push(group);
+        column.entries.push(group);
       } else if (entry && takeTitle(entry.title)) {
-        clean[column].push({ title: entry.title, count: clampCount(entry.count, limits) });
+        column.entries.push({ title: entry.title, count: clampCount(entry.count, limits) });
       }
     }
   }
-  for (const group of pendingIds) group.id = nextGroupId(clean);
+  if (!clean.columns.length) clean.columns = createEmptyBoard(limits).columns;
+  for (const group of pendingGroups) group.id = nextGroupId(clean);
+  for (const column of pendingColumns) column.id = nextColumnId(clean);
 
   const manual = Array.isArray(board?.manual) ? board.manual : [];
   clean.manual = [...seen].filter((title) => manual.includes(title));
   return clean;
 }
 
+// The id of the column holding `title`, or null.
 export function findColumn(board, title) {
-  return COLUMNS.find((column) => columnTitles(board, column).includes(title)) ?? null;
+  return board.columns.find((column) => column.entries.some((entry) => entryTitles(entry).includes(title)))?.id ?? null;
 }
 
-// { column, index, group } of the group with `groupId`, or null.
+// { column (its id), index, group } of the group with `groupId`, or null.
 export function findGroup(board, groupId) {
-  for (const column of COLUMNS) {
-    const index = board[column].findIndex((entry) => isGroup(entry) && entry.id === groupId);
-    if (index !== -1) return { column, index, group: board[column][index] };
+  for (const column of board.columns) {
+    const index = column.entries.findIndex((entry) => isGroup(entry) && entry.id === groupId);
+    if (index !== -1) return { column: column.id, index, group: column.entries[index] };
   }
   return null;
 }
@@ -129,8 +209,8 @@ function detachTitle(board, title) {
   const next = cloneBoard(board);
   let count;
   let removedGroup = null;
-  for (const column of COLUMNS) {
-    next[column] = next[column].filter((entry, index) => {
+  for (const column of next.columns) {
+    column.entries = column.entries.filter((entry, index) => {
       if (!isGroup(entry)) {
         if (entry.title !== title) return true;
         count = entry.count;
@@ -138,17 +218,17 @@ function detachTitle(board, title) {
       }
       entry.titles = entry.titles.filter((item) => item !== title);
       if (entry.titles.length) return true;
-      removedGroup = { column, index };
+      removedGroup = { column: column.id, index };
       return false;
     });
   }
   return { next, count, removedGroup };
 }
 
-// Moves a title to `target` ("management", "technical" or "pool") as a single
-// entry at `index` (end of the column when omitted), keeping its count if it
-// was a single entry already. `index` counts the column's entries without
-// the moved title, as the drop position on screen does. Returns a new board.
+// Moves a title to `target` (a column id or POOL) as a single entry at
+// `index` (end of the column when omitted), keeping its count if it was a
+// single entry already. `index` counts the column's entries without the
+// moved title, as the drop position on screen does. Returns a new board.
 // A manual title sent back to the pool is dropped, since the filter doesn't
 // hold it.
 export function moveTitle(board, title, target, index, limits = DEFAULT_LIMITS) {
@@ -157,12 +237,11 @@ export function moveTitle(board, title, target, index, limits = DEFAULT_LIMITS) 
     next.manual = next.manual.filter((item) => item !== title);
     return next;
   }
-  if (!COLUMNS.includes(target)) throw new Error(`Unknown column: ${target}`);
+  const { entries } = requireColumn(next, target);
 
   let at = index;
   if (Number.isInteger(at) && removedGroup?.column === target && removedGroup.index < at) at -= 1;
-  const column = next[target];
-  column.splice(clampIndex(at, column.length), 0, { title, count: count ?? limits.default });
+  entries.splice(clampIndex(at, entries.length), 0, { title, count: count ?? limits.default });
   return next;
 }
 
@@ -182,32 +261,31 @@ export function moveGroup(board, groupId, target, index) {
   const found = findGroup(board, groupId);
   if (!found) return board;
   const next = cloneBoard(board);
-  const [group] = next[found.column].splice(found.index, 1);
+  const [group] = getColumn(next, found.column).entries.splice(found.index, 1);
   if (target === POOL) {
     next.manual = next.manual.filter((title) => !group.titles.includes(title));
     return next;
   }
-  if (!COLUMNS.includes(target)) throw new Error(`Unknown column: ${target}`);
-  next[target].splice(clampIndex(index, next[target].length), 0, group);
+  const { entries } = requireColumn(next, target);
+  entries.splice(clampIndex(index, entries.length), 0, group);
   return next;
 }
 
 // Joins the entry at `index` with the one above it. A single title above
 // becomes a group that keeps its count; a group above takes in the titles.
-export function groupWithAbove(board, column, index) {
-  if (!COLUMNS.includes(column)) throw new Error(`Unknown column: ${column}`);
-  if (index < 1 || index >= board[column].length) return board;
+export function groupWithAbove(board, columnId, index) {
+  if (index < 1 || index >= requireColumn(board, columnId).entries.length) return board;
   const next = cloneBoard(board);
-  const entries = next[column];
-  const [current] = entries.splice(index, 1);
+  const { entries } = getColumn(next, columnId);
+  const [entry] = entries.splice(index, 1);
   const above = entries[index - 1];
   if (isGroup(above)) {
-    above.titles.push(...entryTitles(current));
+    above.titles.push(...entryTitles(entry));
   } else {
     entries[index - 1] = {
       id: nextGroupId(board),
       name: "",
-      titles: [above.title, ...entryTitles(current)],
+      titles: [above.title, ...entryTitles(entry)],
       count: above.count,
     };
   }
@@ -220,14 +298,14 @@ export function ungroup(board, groupId, limits = DEFAULT_LIMITS) {
   if (!found) return board;
   const next = cloneBoard(board);
   const singles = found.group.titles.map((title) => ({ title, count: limits.default }));
-  next[found.column].splice(found.index, 1, ...singles);
+  getColumn(next, found.column).entries.splice(found.index, 1, ...singles);
   return next;
 }
 
-export function setEntryCount(board, column, index, value, limits = DEFAULT_LIMITS) {
-  if (!board[column]?.[index]) return board;
+export function setEntryCount(board, columnId, index, value, limits = DEFAULT_LIMITS) {
+  if (!getColumn(board, columnId)?.entries[index]) return board;
   const next = cloneBoard(board);
-  next[column][index].count = clampCount(value, limits);
+  getColumn(next, columnId).entries[index].count = clampCount(value, limits);
   return next;
 }
 
@@ -235,35 +313,98 @@ export function renameGroup(board, groupId, name) {
   const found = findGroup(board, groupId);
   if (!found) return board;
   const next = cloneBoard(board);
-  next[found.column][found.index].name = String(name ?? "").replace(/\s+/g, " ").trim();
+  getColumn(next, found.column).entries[found.index].name = cleanText(name);
   return next;
 }
 
-// Adds a typed-in title to the end of `column`. A title already on the board
-// or in the filter (compared case- and whitespace-insensitively) keeps its
-// existing spelling: it's moved to `column` if it's elsewhere.
+// --- columns ---------------------------------------------------------------
+
+// Adds an empty column at the end (the lowest priority), named `name` or
+// "Column N". Returns { board, id }.
+export function addColumn(board, name, limits = DEFAULT_LIMITS) {
+  const next = cloneBoard(board);
+  const id = nextColumnId(board);
+  next.columns.push({ id, name: cleanText(name) || `Column ${board.columns.length + 1}`, count: limits.default, entries: [] });
+  return { board: next, id };
+}
+
+// Removes a column; its titles go back to the Job list (manual ones are
+// dropped). The last column is kept: the board always has one.
+export function removeColumn(board, columnId) {
+  if (!getColumn(board, columnId) || board.columns.length < 2) return board;
+  const titles = columnTitles(board, columnId);
+  const next = cloneBoard(board);
+  next.columns = next.columns.filter((column) => column.id !== columnId);
+  next.manual = next.manual.filter((title) => !titles.includes(title));
+  return next;
+}
+
+// A column's name can't be empty: an empty one leaves the board unchanged.
+export function renameColumn(board, columnId, name) {
+  const clean = cleanText(name);
+  if (!clean || !getColumn(board, columnId)) return board;
+  const next = cloneBoard(board);
+  getColumn(next, columnId).name = clean;
+  return next;
+}
+
+// Moves a column to position `index` among the columns (clamped).
+export function moveColumn(board, columnId, index) {
+  const from = board.columns.findIndex((column) => column.id === columnId);
+  if (from === -1) return board;
+  const next = cloneBoard(board);
+  const [column] = next.columns.splice(from, 1);
+  next.columns.splice(clampIndex(index, next.columns.length), 0, column);
+  return next;
+}
+
+// How many leads the column takes per search.
+export function setColumnCount(board, columnId, value, limits = DEFAULT_LIMITS) {
+  if (!getColumn(board, columnId)) return board;
+  const next = cloneBoard(board);
+  getColumn(next, columnId).count = clampCount(value, limits);
+  return next;
+}
+
+// --- company limit ---------------------------------------------------------
+
+// Turns the company limit on or off and sets its value (clamped).
+export function setCompanyLimit(board, { enabled, value }, companyLimits = DEFAULT_COMPANY_LIMITS) {
+  const next = cloneBoard(board);
+  next.companyLimit = { enabled: enabled === true, value: clampCount(value, companyLimits) };
+  return next;
+}
+
+// How many leads one company may give in all, or null when there's no limit.
+export function getCompanyLimit(board) {
+  return board.companyLimit.enabled ? board.companyLimit.value : null;
+}
+
+// Adds a typed-in title to the end of the column. A title already on the
+// board or in the filter (compared case- and whitespace-insensitively) keeps
+// its existing spelling: it's moved to the column if it's elsewhere.
 // Returns { board, title, outcome }, outcome being
 // "added" | "placed" (taken from the filter) | "moved" | "exists" | "empty".
-export function addTitle(board, rawTitle, column, filterTitles = [], limits = DEFAULT_LIMITS) {
-  const typed = String(rawTitle ?? "").replace(/\s+/g, " ").trim();
+export function addTitle(board, rawTitle, columnId, filterTitles = [], limits = DEFAULT_LIMITS) {
+  const typed = cleanText(rawTitle);
   if (!typed) return { board, title: "", outcome: "empty" };
-  if (!COLUMNS.includes(column)) throw new Error(`Unknown column: ${column}`);
+  requireColumn(board, columnId);
 
   const key = normalizeName(typed);
   const sameTitle = (title) => normalizeName(title) === key;
 
-  const placed = COLUMNS.flatMap((name) => columnTitles(board, name)).find(sameTitle);
+  const placed = board.columns.flatMap((column) => columnTitles(board, column.id)).find(sameTitle);
   if (placed) {
-    if (columnTitles(board, column).includes(placed)) return { board, title: placed, outcome: "exists" };
-    return { board: moveTitle(board, placed, column, undefined, limits), title: placed, outcome: "moved" };
+    if (columnTitles(board, columnId).includes(placed)) return { board, title: placed, outcome: "exists" };
+    return { board: moveTitle(board, placed, columnId, undefined, limits), title: placed, outcome: "moved" };
   }
 
   const fromFilter = filterTitles.find(sameTitle);
   if (fromFilter) {
-    return { board: moveTitle(board, fromFilter, column, undefined, limits), title: fromFilter, outcome: "placed" };
+    return { board: moveTitle(board, fromFilter, columnId, undefined, limits), title: fromFilter, outcome: "placed" };
   }
 
-  const next = moveTitle(board, typed, column, undefined, limits);
+  const next = moveTitle(board, typed, columnId, undefined, limits);
   next.manual.push(typed);
   return { board: next, title: typed, outcome: "added" };
 }
@@ -271,40 +412,46 @@ export function addTitle(board, rawTitle, column, filterTitles = [], limits = DE
 // What the search should look for in a column, by priority:
 // [{ name, titles, count }], one item per entry. A single title's name is
 // the title itself; a group's is its name, or its titles joined by " / ".
-export function getColumnPlan(board, column) {
-  return board[column].map((entry) => ({
+export function getColumnPlan(board, columnId) {
+  return (getColumn(board, columnId)?.entries ?? []).map((entry) => ({
     name: isGroup(entry) ? entry.name || entry.titles.join(" / ") : entry.title,
     titles: [...entryTitles(entry)],
     count: entry.count,
   }));
 }
 
-// A search needs at least one title or group in either column.
+// What the search should look for, column by column in priority order:
+// [{ id, name, count, entries: getColumnPlan }].
+export function getBoardPlan(board) {
+  return board.columns.map(({ id, name, count }) => ({ id, name, count, entries: getColumnPlan(board, id) }));
+}
+
+// A search needs at least one title or group in some column.
 export function hasJobTitles(board) {
-  return COLUMNS.some((column) => board[column].length > 0);
+  return board.columns.some((column) => column.entries.length > 0);
 }
 
 // --- board file ------------------------------------------------------------
-// The columns (titles, groups, counts, manual marks) and the columns' lead
-// counts as saved to a JSON file and loaded back.
+// The columns (names, lead counts, titles, groups, counts), the manual marks
+// and the company limit, as saved to a JSON file and loaded back. Version 1
+// files hold the fixed Management and Technical columns.
 
 export const BOARD_FILE_FORMAT = "leads-automate-job-titles";
-export const BOARD_FILE_VERSION = 1;
+export const BOARD_FILE_VERSION = 2;
 
-export function boardToFile(board, leadsCount) {
+export function boardToFile(board) {
   return {
     format: BOARD_FILE_FORMAT,
     version: BOARD_FILE_VERSION,
-    leadsCount: Object.fromEntries(COLUMNS.map((column) => [column, leadsCount[column]])),
-    management: board.management,
-    technical: board.technical,
+    columns: board.columns,
     manual: board.manual,
+    companyLimit: board.companyLimit,
   };
 }
 
-// Returns { board, leadsCount } from a saved file's text; throws an Error
-// saying what's wrong when it isn't such a file.
-export function boardFromFile(text, limits = DEFAULT_LIMITS) {
+// Returns the board from a saved file's text; throws an Error saying what's
+// wrong when it isn't such a file.
+export function boardFromFile(text, limits = DEFAULT_LIMITS, companyLimits = DEFAULT_COMPANY_LIMITS) {
   let data;
   try {
     data = JSON.parse(text);
@@ -315,8 +462,6 @@ export function boardFromFile(text, limits = DEFAULT_LIMITS) {
   if (!Number.isInteger(data.version) || data.version > BOARD_FILE_VERSION) {
     throw new Error(`unsupported file version ${data.version}`);
   }
-  const leadsCount = Object.fromEntries(
-    COLUMNS.map((column) => [column, clampCount(data.leadsCount?.[column] ?? limits.default, limits)])
-  );
-  return { board: sanitizeBoard(data, limits), leadsCount };
+  if (data.version >= 2 && !Array.isArray(data.columns)) throw new Error("the file has no columns");
+  return sanitizeBoard(data, limits, companyLimits);
 }

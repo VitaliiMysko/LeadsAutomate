@@ -11,7 +11,7 @@ import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
 import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
-import { ensureJobTitles, getJobPriorities } from "./job-board.js";
+import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
@@ -190,8 +190,11 @@ function renderDailyLimit() {
   const found = foundToday(dailyFound, localDateKey());
   elements.dailyLimitInput.disabled = busy || !dailyLimit.enabled;
   elements.dailyLimitToggle.disabled = busy;
-  // Statistics: leads found today against the limit, "unlimited" when off.
+  // Statistics: leads found today against the limit, as a bar; with the
+  // limit off, only the count ("unlimited"), no bar.
   elements.statDailyValue.textContent = `${found} / ${dailyLimit.enabled ? dailyLimit.value : "unlimited"}`;
+  elements.statDailyTrack.hidden = !dailyLimit.enabled;
+  elements.statDailyFill.style.width = `${dailyLimit.enabled ? Math.round(Math.min(found / dailyLimit.value, 1) * 100) : 0}%`;
   elements.statDaily.classList.toggle("stat--warn", dailyLimitReached(dailyFound, dailyLimit, localDateKey()));
 }
 
@@ -213,6 +216,28 @@ function handleResetLeadStats() {
   leadStats = { pages: 0, tried: 0, saved: 0 };
   saveValue(STORAGE_KEYS.leadStats, leadStats);
   renderLeadStats();
+  renderCompanyProgress("", null);
+}
+
+// Statistics, Company leads: the company being processed (the last one, once
+// done) and its leadProgress; null before any lead selection. Each column's
+// chip takes the column's color (its position, as on the board).
+function renderCompanyProgress(name, progress) {
+  elements.statCompanyName.textContent = progress ? `· ${name}` : "";
+  elements.statCompanyValue.textContent = progress ? `${progress.found} / ${progress.wanted}` : "—";
+  const share = progress?.wanted ? Math.min(progress.found / progress.wanted, 1) : 0;
+  elements.statCompanyFill.style.width = `${Math.round(share * 100)}%`;
+  elements.statCompanyFill.classList.toggle("progress__fill--done", !!progress && progress.found >= progress.wanted);
+  elements.statCompanyColumns.replaceChildren(
+    ...(progress?.columns ?? []).map((column, position) => {
+      const chip = document.createElement("span");
+      chip.className = "stat__column";
+      chip.classList.toggle("stat__column--done", column.found >= column.wanted);
+      chip.dataset.color = position % COLUMN_COLORS;
+      chip.textContent = `${column.name} ${column.found} / ${column.wanted}`;
+      return chip;
+    })
+  );
 }
 
 function persistUnresolved() {
@@ -334,13 +359,13 @@ function setCompanyName(name) {
 async function runLeadSelection(name) {
   status.running(`Selecting leads for "${name}"…`);
   try {
-    const { saved, tried, columns, pages } = await selectLeads(getJobPriorities(), {
+    const { saved, tried, wanted, pages } = await selectLeads(getJobPriorities(), {
       log,
       pages: resultPages,
       onPageRead: countPage,
       onLeadTried: countLead,
+      onProgress: (progress) => renderCompanyProgress(name, progress),
     });
-    const wanted = columns.management.wanted + columns.technical.wanted;
     (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried, ${pages} results pages read)`);
     return saved;
   } catch (error) {
@@ -432,11 +457,10 @@ async function withBusy(task) {
   }
 }
 
-// Every search needs at least one job title in the Management or Technical
-// column.
+// Every search needs at least one job title in some column.
 function checkJobTitles() {
   if (ensureJobTitles()) return true;
-  const message = "No job titles: add at least one to the Management or Technical column before searching";
+  const message = "No job titles: add at least one to a job titles column before searching";
   log.error(message);
   status.error(message);
   return false;
