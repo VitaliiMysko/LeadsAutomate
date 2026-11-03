@@ -1,6 +1,7 @@
-import { STORAGE_KEYS, TIMING, RESULT_PAGES } from "../../constants/config.js";
+import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT } from "../../constants/config.js";
 import { clampCount } from "../../utils/priority-board.js";
-import { parseCompaniesFile, companiesCsvColumns, columnMappingLines } from "../../utils/companies-file.js";
+import { localDateKey, foundToday, addFound, dailyLimitReached } from "../../utils/daily-limit.js";
+import { parseCompaniesFile, companiesCsvColumns, columnMappingLines, hasLogoColumn } from "../../utils/companies-file.js";
 import { companyPagePath } from "../../utils/company-page.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
 import { logoSimilarity } from "../../utils/image-hash.js";
@@ -28,16 +29,23 @@ import { status } from "./status.js";
 // and thumbnails are kept (`logos`) so a search can check the dropdown's
 // logos against them.
 let elements = null;
-let queue = { fileName: "", companies: [], index: 0 }; // companies: [{ name, companyId, logoPath, ... }]
+// companies: [{ name, companyId, logoPath, ... }]. Logos (the folder, the
+// logo strip, the logo check) exist only for a file with a `logo` column
+// (`hasLogos`).
+let queue = { fileName: "", companies: [], index: 0, hasLogos: false };
 let logos = {}; // company name → { hash, thumb }
 // Manual labeling: every search waits for the user's pick; the rules'
 // choice is only predicted and recorded next to it.
 let labeling = false;
 let unresolved = []; // [{ name, reason }]
 // Leads tried and saved by lead selection, over all searches until Reset.
-let leadStats = { tried: 0, saved: 0 };
+let leadStats = { pages: 0, tried: 0, saved: 0 };
 // How many results pages lead selection may read per search.
 let resultPages = RESULT_PAGES.default;
+// The daily limit of found leads ({ enabled, value }) and today's count
+// ({ date, saved }, daily-limit.js). Reset of the statistics leaves it.
+let dailyLimit = { enabled: false, value: DAILY_LIMIT.default };
+let dailyFound = null;
 let busy = false;
 let batchRunning = false;
 let waitingManual = false;
@@ -117,6 +125,7 @@ async function renderRecordCounts() {
 }
 
 function logoFor(name) {
+  if (!queue.hasLogos) return null;
   const company = findCompany(name);
   return company ? logos[company.name] ?? null : null;
 }
@@ -145,22 +154,63 @@ function showCurrentLogo(name, result = null) {
 }
 
 function renderLeadStats() {
-  const { tried, saved } = leadStats;
-  const share = tried ? ` (${Math.round((saved / tried) * 100)}%)` : "";
-  elements.leadStatsText.textContent = `Leads: ${tried} checked · ${saved} found${share}`;
-  elements.leadStatsResetButton.disabled = busy || tried === 0;
+  const { pages, tried, saved } = leadStats;
+  elements.statPages.textContent = pages;
+  elements.statTried.textContent = tried;
+  elements.statSaved.textContent = saved;
+  elements.statShare.textContent = tried ? `${Math.round((saved / tried) * 100)}%` : "—";
+  elements.leadStatsResetButton.disabled = busy || (tried === 0 && pages === 0);
 }
 
-function countLead(saved) {
-  leadStats = { tried: leadStats.tried + 1, saved: leadStats.saved + (saved ? 1 : 0) };
+function updateLeadStats(changes) {
+  leadStats = { ...leadStats, ...changes };
   saveValue(STORAGE_KEYS.leadStats, leadStats);
   renderLeadStats();
 }
 
+const countPage = () => updateLeadStats({ pages: leadStats.pages + 1 });
+
+// Only a new lead counts toward the daily limit, not one an earlier search
+// saved ("Already saved").
+function countLead(saved, isNew) {
+  updateLeadStats({ tried: leadStats.tried + 1, saved: leadStats.saved + (saved ? 1 : 0) });
+  if (!isNew) return;
+  dailyFound = addFound(dailyFound, localDateKey());
+  saveValue(STORAGE_KEYS.dailyFound, dailyFound);
+  renderDailyLimit();
+}
+
+// Why no more leads may be taken today, or null.
+function dailyLimitReason() {
+  if (!dailyLimitReached(dailyFound, dailyLimit, localDateKey())) return null;
+  return `Daily limit reached: ${foundToday(dailyFound, localDateKey())} of ${dailyLimit.value} new leads found today. Turn it off or raise it in Settings to go on`;
+}
+
+function renderDailyLimit() {
+  const found = foundToday(dailyFound, localDateKey());
+  elements.dailyLimitInput.disabled = busy || !dailyLimit.enabled;
+  elements.dailyLimitToggle.disabled = busy;
+  // Statistics: leads found today against the limit, "unlimited" when off.
+  elements.statDailyValue.textContent = `${found} / ${dailyLimit.enabled ? dailyLimit.value : "unlimited"}`;
+  elements.statDaily.classList.toggle("stat--warn", dailyLimitReached(dailyFound, dailyLimit, localDateKey()));
+}
+
+function handleDailyLimitChange() {
+  dailyLimit = {
+    enabled: elements.dailyLimitToggle.checked,
+    value: clampCount(elements.dailyLimitInput.value, DAILY_LIMIT),
+  };
+  elements.dailyLimitInput.value = dailyLimit.value;
+  saveValue(STORAGE_KEYS.dailyLimit, dailyLimit);
+  log.info(dailyLimit.enabled ? `Daily limit of found leads: ${dailyLimit.value}` : "Daily limit of found leads off");
+  renderDailyLimit();
+}
+
 function handleResetLeadStats() {
   if (busy) return;
-  log.info(`Lead counts reset (were ${leadStats.tried} checked, ${leadStats.saved} found)`);
-  leadStats = { tried: 0, saved: 0 };
+  const { pages, tried, saved } = leadStats;
+  log.info(`Statistics reset (were ${pages} pages, ${tried} leads processed, ${saved} found)`);
+  leadStats = { pages: 0, tried: 0, saved: 0 };
   saveValue(STORAGE_KEYS.leadStats, leadStats);
   renderLeadStats();
 }
@@ -234,6 +284,7 @@ function updateControls() {
 
   elements.companyName.readOnly = busy;
   elements.resultPagesInput.disabled = busy;
+  renderDailyLimit();
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
   elements.searchAllButton.disabled = busy || !hasNext || labeling;
@@ -252,13 +303,15 @@ function updateControls() {
 
   const withLogo = queue.companies.filter((company) => company.logoPath);
   const loaded = withLogo.filter((company) => logos[company.name]).length;
-  elements.logosRow.hidden = withLogo.length === 0;
+  elements.logosRow.hidden = !queue.hasLogos;
   elements.logoFolderInput.disabled = busy;
   elements.logoFolderButton.classList.toggle("btn--disabled", busy);
   elements.logosStatus.textContent =
-    loaded === withLogo.length
-      ? `Logos: all ${loaded} loaded`
-      : `Logos: ${loaded} of ${withLogo.length} loaded. Choose the folder holding them`;
+    withLogo.length === 0
+      ? "Logos: the logo column is empty"
+      : loaded === withLogo.length
+        ? `Logos: all ${loaded} loaded`
+        : `Logos: ${loaded} of ${withLogo.length} loaded. Choose the folder holding them`;
   elements.logosStatus.classList.toggle("logos-status--warn", loaded < withLogo.length);
 
   const total = queue.companies.length;
@@ -284,6 +337,7 @@ async function runLeadSelection(name) {
     const { saved, tried, columns, pages } = await selectLeads(getJobPriorities(), {
       log,
       pages: resultPages,
+      onPageRead: countPage,
       onLeadTried: countLead,
     });
     const wanted = columns.management.wanted + columns.technical.wanted;
@@ -300,6 +354,14 @@ async function runLeadSelection(name) {
 // `company` is the companies-file entry (for its id), else found by name.
 // Returns { ok, fatal, outcome, chosen, count, reason, error }.
 async function runOne(name, { interactive, company = findCompany(name) }) {
+  // Once the daily limit is reached no new company search starts (Search
+  // all stops, leaving this company as the next); a company already started
+  // is always finished, even past the limit.
+  const limitReason = dailyLimitReason();
+  if (limitReason) {
+    log.error(limitReason);
+    return { ok: false, fatal: true, error: new FatalError(limitReason) };
+  }
   const startedAt = Date.now();
   const fileName = company?.name;
   await resolveCompanyId(company);
@@ -554,10 +616,11 @@ async function handleFile() {
       status.error(`No company names in "${file.name}"`);
       return;
     }
-    queue = { fileName: file.name, companies, index: 0 };
+    queue = { fileName: file.name, companies, index: 0, hasLogos: hasLogoColumn(text) };
     persistQueue();
     logos = {};
     persistLogos();
+    elements.currentLogo.hidden = true;
     setCompanyName(companies[0].name);
     const withLogo = companies.filter((company) => company.logoPath).length;
     const withId = companies.filter((company) => company.companyId).length;
@@ -622,7 +685,7 @@ function handleResetQueue() {
 async function handleLogoFolder() {
   const files = [...(elements.logoFolderInput.files ?? [])];
   elements.logoFolderInput.value = "";
-  if (!files.length || busy) return;
+  if (!files.length || busy || !queue.hasLogos) return;
 
   await withBusy(async () => {
     status.running("Reading logos…");
@@ -720,6 +783,11 @@ export async function initSearchControls(controlElements) {
       fileName: String(storedQueue.fileName ?? ""),
       companies,
       index: Math.min(Math.max(Number(storedQueue.index) || 0, 0), companies.length),
+      // Stored before the flag (v0.6): a file with logo paths had the column.
+      hasLogos:
+        typeof storedQueue.hasLogos === "boolean"
+          ? storedQueue.hasLogos
+          : companies.some((company) => company.logoPath),
     };
   }
   labeling = (await loadValue(STORAGE_KEYS.labelingMode, false)) === true;
@@ -731,10 +799,17 @@ export async function initSearchControls(controlElements) {
     .map(({ name, reason }) => ({ name, reason: String(reason ?? "") }));
   const storedStats = await loadValue(STORAGE_KEYS.leadStats, null);
   leadStats = {
+    pages: Math.max(Number(storedStats?.pages) || 0, 0),
     tried: Math.max(Number(storedStats?.tried) || 0, 0),
     saved: Math.max(Number(storedStats?.saved) || 0, 0),
   };
   resultPages = clampCount(await loadValue(STORAGE_KEYS.resultPages, RESULT_PAGES.default), RESULT_PAGES);
+  const storedLimit = await loadValue(STORAGE_KEYS.dailyLimit, null);
+  dailyLimit = {
+    enabled: storedLimit?.enabled === true,
+    value: clampCount(storedLimit?.value ?? DAILY_LIMIT.default, DAILY_LIMIT),
+  };
+  dailyFound = await loadValue(STORAGE_KEYS.dailyFound, null);
   elements.companyName.value = await loadValue(STORAGE_KEYS.companyName, "");
 
   elements.companyName.addEventListener("input", updateControls);
@@ -751,6 +826,14 @@ export async function initSearchControls(controlElements) {
     saveValue(STORAGE_KEYS.resultPages, resultPages);
     log.info(`Result pages to check: ${resultPages}`);
   });
+  elements.dailyLimitInput.min = DAILY_LIMIT.min;
+  elements.dailyLimitInput.max = DAILY_LIMIT.max;
+  elements.dailyLimitInput.value = dailyLimit.value;
+  elements.dailyLimitToggle.checked = dailyLimit.enabled;
+  elements.dailyLimitToggle.addEventListener("change", handleDailyLimitChange);
+  elements.dailyLimitInput.addEventListener("change", handleDailyLimitChange);
+  // Today's count starts over at midnight while the panel stays open.
+  setInterval(renderDailyLimit, 60000);
   elements.searchButton.addEventListener("click", handleSearch);
   elements.searchNextButton.addEventListener("click", handleSearchNext);
   elements.searchAllButton.addEventListener("click", handleSearchAll);
