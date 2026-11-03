@@ -9,7 +9,6 @@ import { searchCompany } from "../services/search-runner.js";
 import { selectLeads } from "../services/lead-runner.js";
 import { loadCompanyLogos } from "../services/logo-service.js";
 import { companyIdFromPage } from "../services/company-page-service.js";
-import { matchRecordCounts, subscribeMatchRecords, downloadMatchRecords, clearMatchRecords } from "../services/match-recorder.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
 import { startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
@@ -35,9 +34,6 @@ let elements = null;
 // (`hasLogos`).
 let queue = { fileName: "", companies: [], index: 0, hasLogos: false };
 let logos = {}; // company name → { hash, thumb }
-// Manual labeling: every search waits for the user's pick; the rules'
-// choice is only predicted and recorded next to it.
-let labeling = false;
 let unresolved = []; // [{ name, reason }]
 // Leads tried and saved by lead selection, over all searches until Reset.
 let leadStats = { pages: 0, tried: 0, saved: 0 };
@@ -51,9 +47,6 @@ let busy = false;
 let batchRunning = false;
 let waitingManual = false;
 let stopRequested = false;
-// Clean deletes the records on a second click within CLEAN_CONFIRM_MS.
-const CLEAN_CONFIRM_MS = 4000;
-let cleanConfirmTimer = null;
 
 function persistQueue() {
   saveValue(STORAGE_KEYS.companyQueue, queue);
@@ -67,16 +60,6 @@ function persistLogos() {
 // the manual choice list), for its logo.
 function findCompany(name) {
   return queue.companies.find((company) => isSameName(company.name, name)) ?? null;
-}
-
-// CSV data recorded with each match.
-function csvFor(company) {
-  if (!company) return null;
-  return {
-    companyId: company.companyId ?? null,
-    linkedin: company.linkedin ?? null,
-    hasLogo: !!company.logoPath,
-  };
 }
 
 // The LinkedIn page URL of a companies-file entry without a company id,
@@ -118,11 +101,6 @@ async function resolveCompanyId(company) {
   } catch (error) {
     log.warn(`"${company.name}": company id couldn't be read from linkedin.com/${path} (${error.message}), searching by name`);
   }
-}
-
-async function renderRecordCounts() {
-  const counts = await matchRecordCounts().catch(() => null);
-  if (counts) elements.recordCounts.textContent = `Records: ${counts.auto} auto · ${counts.manual} manual`;
 }
 
 function logoFor(name) {
@@ -313,13 +291,7 @@ function updateControls() {
   renderDailyLimit();
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
-  elements.searchAllButton.disabled = busy || !hasNext || labeling;
-  elements.searchAllButton.title = labeling ? "Not available in manual labeling: use Search next" : "";
-  elements.labelingToggle.checked = labeling;
-  elements.labelingToggle.disabled = busy;
-  if (!labeling || busy) resetCleanConfirm();
-  elements.cleanRecordsButton.hidden = !labeling;
-  elements.cleanRecordsButton.disabled = busy;
+  elements.searchAllButton.disabled = busy || !hasNext;
   elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
   elements.prevCompanyButton.disabled = busy || queue.index === 0;
   elements.nextCompanyButton.disabled = busy || !hasNext;
@@ -401,8 +373,6 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
       log,
       companyId: company?.companyId ?? null,
       fileLogo,
-      csv: csvFor(company),
-      labeling,
       waitForManualChoice: interactive,
       shouldStop: () => stopRequested,
       onManualWait: () => {
@@ -730,55 +700,6 @@ async function handleLogoFolder() {
   });
 }
 
-async function handleExportRecords() {
-  try {
-    const counts = await downloadMatchRecords();
-    log.info(`Exported match records: ${counts.auto} auto, ${counts.manual} manual`);
-  } catch (error) {
-    log.error(`Could not export match records: ${error.message}`);
-  }
-}
-
-function resetCleanConfirm() {
-  if (!cleanConfirmTimer) return;
-  clearTimeout(cleanConfirmTimer);
-  cleanConfirmTimer = null;
-  elements.cleanRecordsButton.textContent = "Clean";
-  elements.cleanRecordsButton.classList.remove("btn--danger");
-}
-
-// Deletes all match records, so a labelling session starts from an empty
-// set. The first click only asks for confirmation.
-async function handleCleanRecords() {
-  if (busy || !labeling) return;
-  if (!cleanConfirmTimer) {
-    elements.cleanRecordsButton.textContent = "Confirm?";
-    elements.cleanRecordsButton.classList.add("btn--danger");
-    cleanConfirmTimer = setTimeout(resetCleanConfirm, CLEAN_CONFIRM_MS);
-    log.info("Click Clean again to delete all match records (Export them first to keep them)");
-    return;
-  }
-  resetCleanConfirm();
-  try {
-    const counts = await clearMatchRecords();
-    log.success(`Match records deleted: ${counts.auto} auto, ${counts.manual} manual`);
-    status.idle("Match records cleaned");
-  } catch (error) {
-    log.error(`Could not delete match records: ${error.message}`);
-  }
-}
-
-function handleLabelingToggle() {
-  labeling = elements.labelingToggle.checked;
-  saveValue(STORAGE_KEYS.labelingMode, labeling);
-  log.info(
-    labeling
-      ? "Manual labeling on: every search waits for your pick; the rules' choice is only predicted and recorded"
-      : "Manual labeling off"
-  );
-  updateControls();
-}
-
 function handleClearUnresolved() {
   if (busy || !unresolved.length) return;
   log.info(`Manual choice list cleared (${unresolved.length} companies)`);
@@ -815,7 +736,6 @@ export async function initSearchControls(controlElements) {
           : companies.some((company) => company.logoPath),
     };
   }
-  labeling = (await loadValue(STORAGE_KEYS.labelingMode, false)) === true;
   const storedLogos = await loadValue(STORAGE_KEYS.companyLogos, {});
   logos = storedLogos && typeof storedLogos === "object" ? storedLogos : {};
   const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
@@ -869,13 +789,8 @@ export async function initSearchControls(controlElements) {
   elements.leadStatsResetButton.addEventListener("click", handleResetLeadStats);
   elements.fileInput.addEventListener("change", handleFile);
   elements.logoFolderInput.addEventListener("change", handleLogoFolder);
-  elements.labelingToggle.addEventListener("change", handleLabelingToggle);
-  elements.exportRecordsButton.addEventListener("click", handleExportRecords);
-  elements.cleanRecordsButton.addEventListener("click", handleCleanRecords);
   // Only OK closes the column mapping dialog, not Esc.
   elements.columnsDialog.addEventListener("cancel", (event) => event.preventDefault());
-  subscribeMatchRecords(renderRecordCounts);
-  renderRecordCounts();
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
   onActivityChange((activity) => {
     busy = activity !== null;

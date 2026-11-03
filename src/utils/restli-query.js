@@ -163,6 +163,14 @@ export function companyUrn(companyId) {
   return `urn:li:organization:${companyId}`;
 }
 
+// LinkedIn's numeric company id from its URN ("urn:li:organization:2781504"
+// → "2781504"); other ids are returned as they are, missing ones as null.
+export function companyIdFromUrn(urn) {
+  if (urn === null || urn === undefined || urn === "") return null;
+  const match = String(urn).match(/^urn:li:(?:organization|company|fs_salesCompany):(\d+)$/);
+  return match ? match[1] : String(urn);
+}
+
 // The same search URL with "Current company" set to just the company with
 // LinkedIn id `companyId` (included), shown as `text`, or null when the URL
 // has no parsable query. The id alone decides the company; `text` is only

@@ -5,13 +5,12 @@ import {
   getFilterValues,
   urlWithoutFilter,
   urlWithCompany,
+  companyIdFromUrn,
 } from "../../utils/restli-query.js";
 import { chooseCompanyOption, resemblesName, hasSameName, MATCH_RULES } from "../../utils/company-match.js";
 import { shorterNameVariants } from "../../utils/name-variants.js";
 import { applyLogoCheck, LOGO_VERDICTS } from "../../utils/logo-match.js";
 import { logoDistance, logoSimilarity } from "../../utils/image-hash.js";
-import { MATCH_KINDS, MATCH_MODES, companyIdFromUrn } from "../../utils/match-records.js";
-import { nameFeatures } from "../../utils/name-features.js";
 import { TIMING, LOGO_THRESHOLDS, SHORTER_NAME_ATTEMPTS } from "../../constants/config.js";
 import { formatDuration, randomBetween } from "../../utils/text-utils.js";
 import { hashRemoteLogo } from "./logo-service.js";
@@ -24,7 +23,6 @@ import {
   StoppedError,
   WaitTimeoutError,
 } from "./tab-service.js";
-import { recordMatch } from "./match-recorder.js";
 
 const COMPANY = FILTER_TYPES.CURRENT_COMPANY;
 
@@ -38,15 +36,6 @@ const isOnlyCompany = (url, companyId) => {
   const values = getFilterValues(url, COMPANY);
   return allCompanies(url).length === 1 && values.length === 1 && companyIdFromUrn(values[0].id) === companyId;
 };
-
-async function saveRecord(kind, fields, log) {
-  try {
-    const total = await recordMatch(kind, fields);
-    log.debug(`Saved ${kind} match record, company id ${fields.companyId ?? "unknown"} (${total} stored)`);
-  } catch (error) {
-    log.warn(`Could not save the ${kind} match record: ${error.message}`);
-  }
-}
 
 // Ways to remove the previous company values, tried in order. In-page
 // navigation (the URL without the filter + popstate) works without a page
@@ -305,7 +294,7 @@ async function waitForFilterReady(tabId) {
 // script) and returns the URL with it applied as an included company.
 // Throws when it can't be selected, lands as excluded, or a different
 // company or free text got applied (that one is removed again, so a wrong
-// company never stays in the filter or in the match records).
+// company never stays in the filter).
 async function selectOption(tabId, index, label, log) {
   let clicked;
   try {
@@ -381,49 +370,13 @@ function checkLogos(nameChoice, distances, eligible, log) {
   return checked;
 }
 
-// Per-option data for the match records.
-function describeOptions(typed, options, details, logos, distances) {
-  return options.map((label, index) => {
-    const distance = distances?.[index] ?? null;
-    return {
-      index,
-      label,
-      text: details?.[index]?.text ?? label,
-      logo: details?.[index]?.logo ?? (logos?.[index] ? "logo" : "none"),
-      logoDistance: distance,
-      logoSimilarity: distance === null ? null : logoSimilarity(distance),
-      highlighted: details?.[index]?.highlighted ?? false,
-      name: nameFeatures(typed, label),
-    };
-  });
-}
-
-// What the rules chose (or, in labeling mode, would have chosen).
-function describePrediction(choice, nameChoice, options) {
-  return {
-    index: choice.index,
-    label: options[choice.index] ?? null,
-    rule: choice.rule ?? null,
-    reason: choice.reason ?? null,
-    nameIndex: nameChoice.index,
-    nameRule: nameChoice.rule ?? null,
-    logo: choice.logo ?? null,
-  };
-}
-
-function predictionText(prediction) {
-  return prediction.index === -1
-    ? `nothing (${prediction.reason})`
-    : `#${prediction.index + 1} "${prediction.label}" (${prediction.rule})`;
-}
-
 // Types `typed` into Current company and applies the rules to the dropdown.
 // For a `shorter` name (one the file didn't give) only the same-name and
 // logo rules choose: a short name finds more unrelated companies, so the
 // only option in the list isn't taken on its own.
 async function typeAndChoose(tabId, typed, fileLogo, log, { shorter = false } = {}) {
   log.info(`Typing "${typed}" into Current company`);
-  const { options, logos, details } = await sendToContent(tabId, "typeFilterValue", { filterType: COMPANY, text: typed });
+  const { options, logos } = await sendToContent(tabId, "typeFilterValue", { filterType: COMPANY, text: typed });
   log.debug(options.length ? `Dropdown (${options.length}): ${options.join(" | ")}` : "Dropdown is empty");
 
   let nameChoice = chooseCompanyOption(typed, options);
@@ -433,7 +386,7 @@ async function typeAndChoose(tabId, typed, fileLogo, log, { shorter = false } = 
   const distances = await logoDistances(options, logos, fileLogo, log);
   const eligible = options.map((option) => resemblesName(typed, option));
   const choice = distances ? checkLogos(nameChoice, distances, eligible, log) : nameChoice;
-  return { typed, options, logos, details, distances, nameChoice, choice };
+  return { typed, options, logos, distances, choice };
 }
 
 async function waitForResults(tabId, log) {
@@ -458,40 +411,34 @@ async function waitForResults(tabId, log) {
 //
 // When no option can be chosen automatically:
 // - with `waitForManualChoice`, the dropdown stays open for the user, and
-//   their pick (read from the URL) is recorded as a manual match;
+//   their pick is read from the URL;
 // - otherwise the dropdown is closed and the company reported unresolved.
 //
-// `labeling`: the rules' choice is only predicted and logged, never applied;
-// the user always picks, and the record keeps both for analysis.
-//
 // `fileLogo` ({ hash }) is the company's logo from the companies CSV: when
-// given, the choice is also checked against the dropdown's logos. `csv`
-// ({ companyId, linkedin, hasLogo }) goes into the match record.
+// given, the choice is also checked against the dropdown's logos.
 //
 // `companyId` is the company's LinkedIn id from the companies CSV: the
 // company is then set by it (searchById), with no typeahead, rules or
-// logos and no match record, and only when that fails is it searched by
-// name. In labeling mode the name search always runs; the id then only
-// checks the pick.
+// logos, and only when that fails is it searched by name.
 //
 // Returns { outcome: "already" | "by-id" | "auto" | "manual" | "unresolved",
 // chosen, companyId, typed, rule, reason, logo, count }. Throws FatalError
 // when a batch run can't go on.
 export async function searchCompany(
   name,
-  { log, companyId = null, fileLogo = null, csv = null, labeling = false, waitForManualChoice = false, onManualWait, shouldStop }
+  { log, companyId = null, fileLogo = null, waitForManualChoice = false, onManualWait, shouldStop }
 ) {
   let tab = await getSearchTab();
   await sendToContent(tab.id, "ping");
 
-  if (companyId && !labeling) {
+  if (companyId) {
     const result = await searchById(tab, name, companyId, log);
     if (result) return result;
     tab = await getSearchTab();
   }
 
   const current = allCompanies(tab.url);
-  if (!labeling && current.length === 1 && includedCompanies(tab.url)[0] === name) {
+  if (current.length === 1 && includedCompanies(tab.url)[0] === name) {
     log.info(`"${name}" is already the only Current company filter value`);
     return { outcome: "already", chosen: name, count: await waitForResults(tab.id, log) };
   }
@@ -501,38 +448,30 @@ export async function searchCompany(
   }
 
   let attempt = await typeAndChoose(tab.id, name, fileLogo, log);
-  const attempts = [];
+  const tried = [];
   for (const variant of shorterNameVariants(name).slice(0, SHORTER_NAME_ATTEMPTS)) {
     if (attempt.choice.index !== -1 || attempt.options.some((option) => hasSameName(attempt.typed, option))) break;
     if (shouldStop?.()) break;
-    attempts.push({ typed: attempt.typed, options: attempt.options.length, reason: attempt.choice.reason });
+    tried.push(attempt.typed);
     log.info(`No option has the name "${attempt.typed}"; trying the shorter "${variant}"`);
     await sendToContent(tab.id, "dismissSuggestions", { filterType: COMPANY }).catch(() => {});
     await sleep(randomBetween(...TIMING.betweenRetypesMs));
     attempt = await typeAndChoose(tab.id, variant, fileLogo, log, { shorter: true });
   }
-  const { typed, options, logos, details, distances, nameChoice } = attempt;
+  const { typed, options, logos, distances } = attempt;
   let { choice } = attempt;
   const typedNote = typed === name ? "" : ` (typed "${typed}")`;
-  if (choice.index === -1 && attempts.length) {
-    const tried = [...attempts.map((previous) => previous.typed), typed].map((text) => `"${text}"`).join(", ");
-    choice = { ...choice, reason: `${choice.reason}; tried ${tried}` };
+  if (choice.index === -1 && tried.length) {
+    const names = [...tried, typed].map((text) => `"${text}"`).join(", ");
+    choice = { ...choice, reason: `${choice.reason}; tried ${names}` };
   }
 
-  const recordBase = {
-    name,
-    typed,
-    attempts,
-    csv,
-    prediction: describePrediction(choice, nameChoice, options),
-    options: describeOptions(typed, options, details, logos, distances),
-  };
   const logoOf = (index) => ({
     url: logos?.[index] ?? null,
     ...(distances?.[index] !== null && distances?.[index] !== undefined ? { distance: distances[index] } : {}),
   });
 
-  if (!labeling && choice.index !== -1) {
+  if (choice.index !== -1) {
     const label = options[choice.index];
     log.info(`Auto-choosing "${label}" (option ${choice.index + 1} of ${options.length}) for "${name}"${typedNote}: ${choice.description}`);
     const url = await selectOption(tab.id, choice.index, label, log);
@@ -541,7 +480,6 @@ export async function searchCompany(
     const chosenId = companyIdFromUrn(getFilterValues(url, COMPANY).find((value) => value.text === label)?.id);
     checkFileCompanyId(companyId, chosenId, label, log);
     const count = await waitForResults(tab.id, log);
-    await saveRecord(MATCH_KINDS.AUTO, { ...recordBase, mode: MATCH_MODES.AUTO, chosen: label, companyId: chosenId, leads: count }, log);
     return {
       outcome: "auto",
       chosen: label,
@@ -553,22 +491,17 @@ export async function searchCompany(
     };
   }
 
-  if (labeling) {
-    log.info(`Labeling: the rules would choose ${predictionText(recordBase.prediction)}`);
-  } else {
-    log.warn(`No automatic choice for "${name}": ${choice.reason}`);
-  }
+  log.warn(`No automatic choice for "${name}": ${choice.reason}`);
   const unresolved = async (reason) => {
     await sendToContent(tab.id, "dismissSuggestions", { filterType: COMPANY }).catch(() => {});
     return { outcome: "unresolved", reason };
   };
 
-  if (!labeling && !waitForManualChoice) return unresolved(choice.reason);
+  if (!waitForManualChoice) return unresolved(choice.reason);
 
   const timeout = TIMING.manualChoiceTimeoutMs;
   log.info(`Pick the company in the Sales Navigator dropdown (waiting up to ${formatDuration(timeout)}; Stop cancels)`);
   onManualWait?.();
-  const waitStartedAt = Date.now();
 
   let url;
   try {
@@ -583,7 +516,6 @@ export async function searchCompany(
     if (error instanceof WaitTimeoutError) return unresolved(`no manual choice within ${formatDuration(timeout)}`);
     throw error;
   }
-  const pickMs = Date.now() - waitStartedAt;
 
   const picked = getFilterValues(url, COMPANY);
   const chosen = picked.map((value) => value.text).join(", ");
@@ -591,27 +523,8 @@ export async function searchCompany(
   const chosenIndex = options.indexOf(chosen);
   log.success(`Manually selected "${chosen}" for "${name}"${typedNote}`);
   checkFileCompanyId(companyId, pickedId, chosen, log);
-  if (labeling) {
-    const agreed = recordBase.prediction.index === chosenIndex;
-    log[agreed ? "success" : "warn"](
-      `Labeling: you picked ${chosenIndex === -1 ? "a company not in the dropdown" : `#${chosenIndex + 1}`}; ` +
-        `the rules ${agreed ? "agree" : `would have chosen ${predictionText(recordBase.prediction)}`}`
-    );
-  }
 
   const count = await waitForResults(tab.id, log);
-  await saveRecord(
-    MATCH_KINDS.MANUAL,
-    {
-      ...recordBase,
-      mode: labeling ? MATCH_MODES.LABELING : MATCH_MODES.FALLBACK,
-      chosen,
-      companyId: pickedId,
-      leads: count,
-      pickMs,
-    },
-    log
-  );
   const pickedLogo = chosenIndex === -1 ? {} : logoOf(chosenIndex);
   return { outcome: "manual", chosen, companyId: pickedId, typed, logo: { ...pickedLogo, verdict: "picked by hand" }, count };
 }
