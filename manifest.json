@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Leads Automate",
-  "version": "0.6.0",
-  "description": "Side panel that prioritizes job titles and runs company-by-company searches on LinkedIn Sales Navigator people search.",
+  "version": "0.7.0",
+  "description": "Side panel that prioritizes job titles and runs company-by-company searches on LinkedIn Sales Navigator people search; exports company searches to CSV.",
   "minimum_chrome_version": "116",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkjIcOOwEzGwPpfiiEy5h195GfGdonSrhNJAlxwpIkTYsX5NcbyDaxnCHf7lnOLL9V/3enKtlJZh8/el5zjDR2YxdkN6y3bYsfK+LWMzWObkir6HTFB29+AuSvsxrlzw3v+WchzbsxK6UrUIO2qp/QfX104BvhY5PWh1i7nlGTF41QAFsPPNlXv9C+r5qizakl4jCepF2EkUQ/TH4nyRtDPW3SRU3YcZe4ZiQxxQ6o6S9L/TCTtbGDRkWZaWshPGrulhutQBtdiNqqBwYxZ8w9Fm9S2C2Iul/yU8g8iFEd7qTpoCI4TsrKYmEXg4ySJnnCuWRkYDGTyEYhs52jzLoyQIDAQAB",
   "permissions": ["sidePanel", "storage", "management", "webRequest"],

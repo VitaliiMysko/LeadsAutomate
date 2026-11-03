@@ -76,6 +76,11 @@ export const COMPANY_LIMIT = { min: 1, max: 99, default: 5 };
 export const RESULT_PAGES = { min: 1, max: 100, default: 1 };
 export const LEADS_PER_PAGE = 25;
 
+// How many companies the companies export takes from a company search
+// (up to its 100 pages of COMPANIES_PER_PAGE).
+export const COMPANY_EXPORT = { min: 1, max: 2500, default: 25 };
+export const COMPANIES_PER_PAGE = 25;
+
 // The daily limit of found (saved) leads, when the user turns it on.
 export const DAILY_LIMIT = { min: 1, max: 1000, default: 50 };
 
@@ -98,6 +103,8 @@ export const STORAGE_KEYS = {
   collapsedCards: "collapsedCards",
   dailyLimit: "dailyLimit",
   dailyFound: "dailyFound",
+  companyExport: "companyExport",
+  companyExportCount: "companyExportCount",
 };
 
 export const LOG_LIMIT = 1000;

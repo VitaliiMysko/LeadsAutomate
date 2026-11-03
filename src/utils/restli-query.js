@@ -5,6 +5,7 @@
 // LinkedIn's hashed CSS class names, unlike scraping the filter panel.
 
 const PEOPLE_SEARCH_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\/search\/people/;
+const COMPANY_SEARCH_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\/search\/company/;
 const LEAD_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\/lead\//;
 
 export const FILTER_TYPES = {
@@ -19,6 +20,11 @@ export const SELECTION_TYPES = {
 
 export function isPeopleSearchUrl(url) {
   return typeof url === "string" && PEOPLE_SEARCH_URL_REGEX.test(url);
+}
+
+// Sales Navigator's account (company) search: its results are companies.
+export function isCompanySearchUrl(url) {
+  return typeof url === "string" && COMPANY_SEARCH_URL_REGEX.test(url);
 }
 
 // A lead's page (linkedin.com/sales/lead/...), also shown over the search

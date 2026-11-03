@@ -431,6 +431,11 @@ h2 {
   padding: 2px 4px;
 }
 
+/* Room for four digits beside the spinner (up to 2500). */
+.count-field input.count-field__input--wide {
+  width: 68px;
+}
+
 /* Grows with its titles: the Job titles section can be collapsed, so the
    panel scrolls instead of the column. Fills the column, so the shorter of
    the two stays a drop zone as tall as the other. */
