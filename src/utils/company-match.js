@@ -1,7 +1,7 @@
 import { normalizeName } from "./text-utils.js";
 
 // Picks a company from the Sales Navigator typeahead for a typed name. The
-// rules and their order come from labelled choices (match records), where
+// rules and their order come from labelled choices, where
 // LinkedIn's own order of the options was the strongest signal: an option
 // with the typed name at the top of the list was right ~95% of the time,
 // one further down only ~45%.

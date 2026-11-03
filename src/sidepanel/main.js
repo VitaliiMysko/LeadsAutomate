@@ -1,6 +1,7 @@
 import { FILTER_TYPES, getSearchFilters, getFilterTexts, isPeopleSearchUrl, isLeadUrl } from "../utils/restli-query.js";
+import { STORAGE_KEYS } from "../constants/config.js";
 import { getActiveTab } from "./services/tab-service.js";
-import { clearOutdatedMatchRecords } from "./services/match-recorder.js";
+import { removeValue } from "./store/storage.js";
 import { initLog, log } from "./ui/log.js";
 import { initStatus, status } from "./ui/status.js";
 import { initJobBoard, setFilterTitles } from "./ui/job-board.js";
@@ -111,10 +112,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     currentFoundLogo: $("current-found-logo"),
     currentLogoName: $("current-logo-name"),
     currentLogoVerdict: $("current-logo-verdict"),
-    labelingToggle: $("labeling-toggle"),
-    recordCounts: $("record-counts"),
-    exportRecordsButton: $("export-records-btn"),
-    cleanRecordsButton: $("clean-records-btn"),
     columnsDialog: $("columns-dialog"),
     columnsDialogTitle: $("columns-dialog-title"),
     columnsDialogText: $("columns-dialog-text"),
@@ -137,8 +134,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   chrome.tabs.onActivated.addListener(refreshJobTitles);
 
-  const dropped = await clearOutdatedMatchRecords();
-  if (dropped) log.info(`Cleared ${dropped} match records of an older format`);
+  // Match records are no longer kept: drops those left by earlier versions.
+  await removeValue(STORAGE_KEYS.matchRecords);
 
   log.info("Side panel ready");
   await refreshJobTitles();

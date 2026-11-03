@@ -10,3 +10,7 @@ export async function loadValue(key, fallback) {
 export function saveValue(key, value) {
   return chrome.storage.local.set({ [key]: value }).catch(() => {});
 }
+
+export function removeValue(key) {
+  return chrome.storage.local.remove(key).catch(() => {});
+}

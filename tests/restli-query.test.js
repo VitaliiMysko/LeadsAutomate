@@ -10,6 +10,7 @@ import {
   isLeadUrl,
   pageOf,
   urlWithPage,
+  companyIdFromUrn,
   FILTER_TYPES,
   SELECTION_TYPES,
 } from "../src/utils/restli-query.js";
@@ -209,5 +210,17 @@ describe("pageOf / urlWithPage", () => {
     expect(new URL(second).searchParams.get("sessionId")).toBe("abc");
     expect(new URL(urlWithPage(second, 1)).searchParams.has("page")).toBe(false);
     expect(urlWithPage("not a url", 2)).toBeNull();
+  });
+});
+
+describe("companyIdFromUrn", () => {
+  test.each([
+    ["urn:li:organization:2781504", "2781504"],
+    ["urn:li:company:200346", "200346"],
+    ["98943645", "98943645"],
+    [null, null],
+    ["", null],
+  ])("%p → %p", (urn, expected) => {
+    expect(companyIdFromUrn(urn)).toBe(expected);
   });
 });

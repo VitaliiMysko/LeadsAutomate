@@ -2,7 +2,7 @@ import { TRAILING_LEGAL_FORMS } from "./company-match.js";
 import { normalizeName } from "./text-utils.js";
 
 // Shorter names to type when Sales Navigator has no option with the name
-// from the companies file. In labelled choices (match records), about one
+// from the companies file. In labelled choices, about one
 // company in five had to be retyped by hand, mostly as the name without:
 //
 // 1. a legal form: "LAIT ApS" → "LAIT", "MCB A/S" → "MCB";

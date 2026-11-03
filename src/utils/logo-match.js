@@ -3,7 +3,7 @@
 // distances (image-hash.js logoDistance), null where an option has no usable
 // logo. Only applies when there's something to compare.
 //
-// In labelled choices (match records), a logo helped only where the name
+// In labelled choices, a logo helped only where the name
 // rules couldn't choose: there, the one option whose logo clearly matched
 // was right every time (7 of 7), while overriding a name choice was right
 // once in 4 (same-name duplicates often share a logo). A distant logo meant

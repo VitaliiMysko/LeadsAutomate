@@ -57,7 +57,7 @@ export const SHORTER_NAME_ATTEMPTS = 2;
 // Umbraco partner logos vs. LinkedIn-like copies (small, JPEG): same logo
 // ≤10 in ~75% of cases; different logos ≥20 in ~99.8%. Checked on 251
 // labelled choices: a unique match chose the right company in 38 of 41.
-// Tune them from the distances the log and the match records report.
+// Tune them from the distances the log reports.
 export const LOGO_THRESHOLDS = {
   // At most this far: same logo.
   matchMaxDistance: 10,
@@ -92,10 +92,10 @@ export const STORAGE_KEYS = {
   companyName: "companyName",
   companyQueue: "companyQueue",
   companyLogos: "companyLogos",
-  labelingMode: "labelingMode",
   logLevels: "logLevels",
   jobSectionOpen: "jobSectionOpen",
   unresolvedCompanies: "unresolvedCompanies",
+  // Only removed: match records kept by earlier versions.
   matchRecords: "companyMatchRecords",
   companyPageIds: "companyPageIds",
   leadStats: "leadStats",
