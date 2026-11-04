@@ -153,6 +153,21 @@
         </label>
         <input type="number" id="daily-limit" class="count-field__input--wide" inputmode="numeric" aria-label="Daily limit of found leads" />
       </div>
+      <div class="count-field setting" title="When on, lead selection for a company stops once this many leads tried in a row weren't saved (not opened, no email, not saved), and the work goes on with the next company; a saved lead starts the count over">
+        <label class="toggle">
+          <input type="checkbox" id="failed-limit-toggle" />
+          <span>Failed leads in a row per company</span>
+        </label>
+        <input type="number" id="failed-limit" inputmode="numeric" aria-label="Failed leads in a row per company" />
+      </div>
+      <div class="count-field setting" title="When on, the job titles of the leads on every results page read for a companies-file company (locked leads aside) are counted; processing the file from its first company starts over">
+        <label class="toggle">
+          <input type="checkbox" id="lead-titles-toggle" />
+          <span>Record leads' job titles</span>
+        </label>
+        <button type="button" id="lead-titles-download-btn" class="btn btn--secondary btn--small" title="Download the recorded job titles with their counts as a CSV file">Download CSV</button>
+      </div>
+      <p id="lead-titles-summary" class="hint"></p>
     </section>
 
     <details id="job-section" class="collapsible" open>

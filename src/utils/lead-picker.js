@@ -6,7 +6,7 @@ import { normalizeName } from "./text-utils.js";
 
 // Lower case, punctuation and symbols as spaces: "Head of R&D, EMEA" →
 // "head of r d emea".
-function titleWords(value) {
+export function titleWords(value) {
   return normalizeName(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
@@ -123,4 +123,18 @@ export function wantsMoreLeads(columns, tried = [], companyLimit = null) {
       totals[column.id].found < totals[column.id].wanted &&
       column.entries.some((entry, entryIndex) => savedFromEntry(tried, column.id, entryIndex) < entry.count)
   );
+}
+
+// How many leads tried last in a row were not saved (`tried` in the order
+// tried): a saved lead starts the count over.
+export function failedInARow(tried = []) {
+  let count = 0;
+  for (let i = tried.length - 1; i >= 0 && !tried[i].saved; i--) count++;
+  return count;
+}
+
+// Whether the company has given `maxFailed` leads in a row that weren't
+// saved, so its lead selection stops; null for no such limit.
+export function failedLimitReached(tried, maxFailed) {
+  return maxFailed != null && failedInARow(tried) >= maxFailed;
 }

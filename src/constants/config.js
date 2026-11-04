@@ -81,6 +81,11 @@ export const LEADS_PER_PAGE = 25;
 export const COMPANY_EXPORT = { min: 1, max: 2500, default: 25 };
 export const COMPANIES_PER_PAGE = 25;
 
+// Leads in a row that weren't saved (not opened, no extract, no email, not
+// saved) after which lead selection for a company stops and the work goes on
+// with the next company, when the user turns it on.
+export const FAILED_IN_A_ROW = { min: 1, max: 100, default: 5 };
+
 // The daily limit of found (saved) leads, when the user turns it on.
 export const DAILY_LIMIT = { min: 1, max: 1000, default: 50 };
 
@@ -103,8 +108,11 @@ export const STORAGE_KEYS = {
   collapsedCards: "collapsedCards",
   dailyLimit: "dailyLimit",
   dailyFound: "dailyFound",
+  failedInARow: "failedInARow",
   companyExport: "companyExport",
   companyExportCount: "companyExportCount",
+  recordLeadTitles: "recordLeadTitles",
+  leadTitles: "leadTitles",
 };
 
 export const LOG_LIMIT = 1000;
