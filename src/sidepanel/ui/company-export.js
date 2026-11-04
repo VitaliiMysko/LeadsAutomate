@@ -12,6 +12,7 @@ import { exportCompanies, getCompanySearchTab } from "../services/company-export
 import { clearRateLimit } from "../services/tab-service.js";
 import { currentActivity, startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { loadValue, saveValue } from "../store/storage.js";
+import { downloadCsv } from "./download.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
 
@@ -84,18 +85,11 @@ function update(next) {
   }
 }
 
-// Saves the companies taken so far as a CSV file through the browser's
-// download. With a BOM, so Excel reads the names as UTF-8.
+// Saves the companies taken so far as a CSV file.
 function download() {
-  const text = companiesCsv(state.companies);
-  const url = URL.createObjectURL(new Blob(["﻿", text], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `companies-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  log.info(`${state.companies.length} companies saved to ${link.download}`);
-  return link.download;
+  const fileName = downloadCsv(companiesCsv(state.companies), "companies");
+  log.info(`${state.companies.length} companies saved to ${fileName}`);
+  return fileName;
 }
 
 async function run() {

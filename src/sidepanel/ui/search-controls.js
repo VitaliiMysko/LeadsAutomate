@@ -1,4 +1,4 @@
-import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT } from "../../constants/config.js";
+import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT, FAILED_IN_A_ROW } from "../../constants/config.js";
 import { clampCount } from "../../utils/priority-board.js";
 import { localDateKey, foundToday, addFound, dailyLimitReached } from "../../utils/daily-limit.js";
 import { parseCompaniesFile, companiesCsvColumns, columnMappingLines, hasLogoColumn } from "../../utils/companies-file.js";
@@ -12,6 +12,7 @@ import { companyIdFromPage } from "../services/company-page-service.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
 import { startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
+import { restartLeadTitles, countLeadTitlesCompany, recordLeadTitles } from "./lead-titles.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
@@ -43,6 +44,9 @@ let resultPages = RESULT_PAGES.default;
 // ({ date, saved }, daily-limit.js). Reset of the statistics leaves it.
 let dailyLimit = { enabled: false, value: DAILY_LIMIT.default };
 let dailyFound = null;
+// Failed leads in a row after which a company's lead selection stops
+// ({ enabled, value }).
+let failedLimit = { enabled: false, value: FAILED_IN_A_ROW.default };
 let busy = false;
 let batchRunning = false;
 let waitingManual = false;
@@ -177,6 +181,22 @@ function renderDailyLimit() {
   elements.statDaily.classList.toggle("stat--warn", dailyLimitReached(dailyFound, dailyLimit, localDateKey()));
 }
 
+function renderFailedLimit() {
+  elements.failedLimitToggle.disabled = busy;
+  elements.failedLimitInput.disabled = busy || !failedLimit.enabled;
+}
+
+function handleFailedLimitChange() {
+  failedLimit = {
+    enabled: elements.failedLimitToggle.checked,
+    value: clampCount(elements.failedLimitInput.value, FAILED_IN_A_ROW),
+  };
+  elements.failedLimitInput.value = failedLimit.value;
+  saveValue(STORAGE_KEYS.failedInARow, failedLimit);
+  log.info(failedLimit.enabled ? `Failed leads in a row per company: ${failedLimit.value}` : "Failed leads in a row per company: no limit");
+  renderFailedLimit();
+}
+
 function handleDailyLimitChange() {
   dailyLimit = {
     enabled: elements.dailyLimitToggle.checked,
@@ -289,6 +309,7 @@ function updateControls() {
   elements.companyName.readOnly = busy;
   elements.resultPagesInput.disabled = busy;
   renderDailyLimit();
+  renderFailedLimit();
   elements.searchButton.disabled = busy || !name;
   elements.searchNextButton.disabled = busy || !hasNext;
   elements.searchAllButton.disabled = busy || !hasNext;
@@ -328,14 +349,20 @@ function setCompanyName(name) {
 
 // Saves the company's leads through Lead generator by the job-title
 // priorities; returns how many were saved, or null when that failed (a
-// FatalError is passed on).
-async function runLeadSelection(name) {
+// FatalError is passed on). With `recordTitles` (a companies-file company)
+// the job titles of the leads read are recorded (lead-titles.js).
+async function runLeadSelection(name, { recordTitles = false } = {}) {
   status.running(`Selecting leads for "${name}"…`);
+  if (recordTitles) countLeadTitlesCompany();
   try {
     const { saved, tried, wanted, pages } = await selectLeads(getJobPriorities(), {
       log,
       pages: resultPages,
-      onPageRead: countPage,
+      maxFailed: failedLimit.enabled ? failedLimit.value : null,
+      onPageRead: (leads) => {
+        countPage();
+        if (recordTitles) recordLeadTitles(leads);
+      },
       onLeadTried: countLead,
       onProgress: (progress) => renderCompanyProgress(name, progress),
     });
@@ -393,7 +420,7 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
         log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
       } else {
         log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
-        result.selected = await runLeadSelection(name);
+        result.selected = await runLeadSelection(name, { recordTitles: !!company });
       }
     }
     return { ok: true, fatal: false, ...result };
@@ -462,6 +489,8 @@ async function handleResolve(name) {
 async function searchQueued({ interactive }) {
   const company = queue.companies[queue.index];
   const { name } = company;
+  // Processing the file from its first company is a new start.
+  if (queue.index === 0) restartLeadTitles();
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
   const result = await runOne(name, { interactive, company });
@@ -755,6 +784,11 @@ export async function initSearchControls(controlElements) {
     value: clampCount(storedLimit?.value ?? DAILY_LIMIT.default, DAILY_LIMIT),
   };
   dailyFound = await loadValue(STORAGE_KEYS.dailyFound, null);
+  const storedFailed = await loadValue(STORAGE_KEYS.failedInARow, null);
+  failedLimit = {
+    enabled: storedFailed?.enabled === true,
+    value: clampCount(storedFailed?.value ?? FAILED_IN_A_ROW.default, FAILED_IN_A_ROW),
+  };
   elements.companyName.value = await loadValue(STORAGE_KEYS.companyName, "");
 
   elements.companyName.addEventListener("input", updateControls);
@@ -777,6 +811,12 @@ export async function initSearchControls(controlElements) {
   elements.dailyLimitToggle.checked = dailyLimit.enabled;
   elements.dailyLimitToggle.addEventListener("change", handleDailyLimitChange);
   elements.dailyLimitInput.addEventListener("change", handleDailyLimitChange);
+  elements.failedLimitInput.min = FAILED_IN_A_ROW.min;
+  elements.failedLimitInput.max = FAILED_IN_A_ROW.max;
+  elements.failedLimitInput.value = failedLimit.value;
+  elements.failedLimitToggle.checked = failedLimit.enabled;
+  elements.failedLimitToggle.addEventListener("change", handleFailedLimitChange);
+  elements.failedLimitInput.addEventListener("change", handleFailedLimitChange);
   // Today's count starts over at midnight while the panel stays open.
   setInterval(renderDailyLimit, 60000);
   elements.searchButton.addEventListener("click", handleSearch);

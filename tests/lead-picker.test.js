@@ -7,6 +7,8 @@ import {
   wantsMoreLeads,
   companyLimitReached,
   leadProgress,
+  failedInARow,
+  failedLimitReached,
 } from "../src/utils/lead-picker.js";
 
 const lead = (index, title, extra = {}) => ({
@@ -301,5 +303,24 @@ describe("wantsMoreLeads", () => {
     expect(wantsMoreLeads(columns({ management: [entry(["CEO"], 1)], technical: [] }, { management: 1, technical: 0 }), tried)).toBe(
       true
     );
+  });
+});
+
+describe("failed leads in a row", () => {
+  const attempt = (saved) => ({ index: 0, column: "c", entryIndex: 0, saved });
+
+  test("failedInARow counts the unsaved leads since the last saved one", () => {
+    expect(failedInARow([])).toBe(0);
+    expect(failedInARow([attempt(false), attempt(false)])).toBe(2);
+    expect(failedInARow([attempt(false), attempt(true), attempt(false)])).toBe(1);
+    expect(failedInARow([attempt(false), attempt(false), attempt(true)])).toBe(0);
+  });
+
+  test("failedLimitReached once that many failed in a row, never without a limit", () => {
+    const tried = [attempt(false), attempt(true), attempt(false), attempt(false)];
+    expect(failedLimitReached(tried, 2)).toBe(true);
+    expect(failedLimitReached(tried, 3)).toBe(false);
+    expect(failedLimitReached(tried, null)).toBe(false);
+    expect(failedLimitReached([], 1)).toBe(false);
   });
 });

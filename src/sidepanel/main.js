@@ -8,6 +8,7 @@ import { initJobBoard, setFilterTitles } from "./ui/job-board.js";
 import { initSearchControls } from "./ui/search-controls.js";
 import { initCollapsibleCards } from "./ui/collapsible-cards.js";
 import { initCompanyExport } from "./ui/company-export.js";
+import { initLeadTitles } from "./ui/lead-titles.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -75,6 +76,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     resultPagesInput: $("result-pages"),
     dailyLimitToggle: $("daily-limit-toggle"),
     dailyLimitInput: $("daily-limit"),
+    failedLimitToggle: $("failed-limit-toggle"),
+    failedLimitInput: $("failed-limit"),
     statDaily: $("stat-daily"),
     statDailyValue: $("stat-daily-value"),
     statDailyTrack: $("stat-daily-track"),
@@ -116,6 +119,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     columnsDialogTitle: $("columns-dialog-title"),
     columnsDialogText: $("columns-dialog-text"),
     columnsDialogOkButton: $("columns-dialog-ok-btn"),
+  });
+
+  await initLeadTitles({
+    toggle: $("lead-titles-toggle"),
+    downloadButton: $("lead-titles-download-btn"),
+    summary: $("lead-titles-summary"),
   });
 
   await initCompanyExport({
