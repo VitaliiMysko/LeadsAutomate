@@ -134,10 +134,13 @@ export function wantsMoreLeads(columns, tried = [], companyLimit = null) {
 }
 
 // How many leads tried last in a row were not saved (`tried` in the order
-// tried): a saved lead starts the count over.
+// tried): a saved lead starts the count over. A lead whose company has no
+// website (`noWebsite`) isn't counted and doesn't start the count over.
 export function failedInARow(tried = []) {
   let count = 0;
-  for (let i = tried.length - 1; i >= 0 && !tried[i].saved; i--) count++;
+  for (let i = tried.length - 1; i >= 0 && !tried[i].saved; i--) {
+    if (!tried[i].noWebsite) count++;
+  }
   return count;
 }
 

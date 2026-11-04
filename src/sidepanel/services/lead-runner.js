@@ -7,7 +7,7 @@ import {
   failedLimitReached,
   leadProgress,
 } from "../../utils/lead-picker.js";
-import { TIMING, LEADS_PER_PAGE } from "../../constants/config.js";
+import { TIMING, LEADS_PER_PAGE, LEAD_GENERATOR } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
 import { getSearchTab, sendToContent, FatalError, RateLimitError } from "./tab-service.js";
 import { connectLeadGenerator } from "./lead-generator-service.js";
@@ -62,7 +62,8 @@ async function openLead(tabId, { column, entry, lead }, log) {
 
 // Runs Extract, Generate and Save in Lead generator for the opened lead,
 // with a pause before each step. Returns "new" when the lead was saved now,
-// "duplicate" when an earlier search saved it ("Already saved"), else null.
+// "duplicate" when an earlier search saved it ("Already saved"), "noWebsite"
+// when its company has no website (no Generate then), else null.
 // Throws FatalError when no more leads can be saved (its limit is reached).
 async function saveLead(leadGenerator, lead, log) {
   const pause = () => sleep(randomBetween(...TIMING.betweenLeadGeneratorStepsMs));
@@ -78,6 +79,10 @@ async function saveLead(leadGenerator, lead, log) {
     `"${lead.name}": extracted ${[firstName, surname].filter(Boolean).join(" ")} · ${jobPosition || "no position"} · ` +
       `${companyName || "no company"} · ${website || "no website"}`
   );
+  if (website === LEAD_GENERATOR.noWebsiteText) {
+    log.info(`"${lead.name}": the company has no website, not saved (not counted as a failed lead)`);
+    return "noWebsite";
+  }
 
   await pause();
   const { email, message } = await leadGenerator.generateEmails();
@@ -235,8 +240,9 @@ async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, maxF
     try {
       await openLead(tabId, pick, log);
       const outcome = await saveLead(leadGenerator, pick.lead, log);
-      attempt.saved = outcome !== null;
+      attempt.saved = outcome === "new" || outcome === "duplicate";
       attempt.isNew = outcome === "new";
+      attempt.noWebsite = outcome === "noWebsite";
     } catch (error) {
       if (error instanceof FatalError) throw error;
       log.warn(`"${pick.lead.name}": ${error.message}`);

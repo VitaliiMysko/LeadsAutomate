@@ -343,6 +343,14 @@ describe("failed leads in a row", () => {
     expect(failedInARow([attempt(false), attempt(false), attempt(true)])).toBe(0);
   });
 
+  test("failedInARow skips leads whose company has no website, without starting over", () => {
+    const noWebsite = { ...attempt(false), noWebsite: true };
+    expect(failedInARow([noWebsite, noWebsite])).toBe(0);
+    expect(failedInARow([attempt(false), noWebsite, attempt(false)])).toBe(2);
+    expect(failedInARow([attempt(true), noWebsite])).toBe(0);
+    expect(failedLimitReached([attempt(false), noWebsite], 2)).toBe(false);
+  });
+
   test("failedLimitReached once that many failed in a row, never without a limit", () => {
     const tried = [attempt(false), attempt(true), attempt(false), attempt(false)];
     expect(failedLimitReached(tried, 2)).toBe(true);
