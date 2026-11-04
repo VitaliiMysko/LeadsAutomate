@@ -1,5 +1,6 @@
 import {
   titleMatches,
+  titleWords,
   splitTitle,
   nextPick,
   countFound,
@@ -41,12 +42,35 @@ describe("splitTitle", () => {
     ],
     ["Portfoliomanager Gas; Gas Trader; Contract Negotiator", ["portfoliomanager gas", "gas trader", "contract negotiator"]],
     ["Founder AND CEO", ["founder", "ceo"]],
+    ["Managing Director - Lettings", ["managing director", "lettings"]],
+    ["Head of Engineering – Embarked Aviation Support", ["head of engineering", "embarked aviation support"]],
+    ["CEO — Acme", ["ceo", "acme"]],
+    ["Payroll Operations Director- Central EU", ["payroll operations director", "central eu"]],
+    ["Director of Operations : eCommerce U.S.", ["director of operations", "ecommerce us"]],
+    ["IT Director - Enterprise Data + Solutions", ["it director", "enterprise data", "solutions"]],
   ])("%s", (title, parts) => {
     expect(splitTitle(title)).toEqual(parts);
   });
 
   test("'and' and 'at' split only as whole words", () => {
     expect(splitTitle("Head of Brand, Data Analyst")).toEqual(["head of brand", "data analyst"]);
+  });
+
+  test("a hyphen within a word doesn't split", () => {
+    expect(splitTitle("Co-Founder & CEO-President")).toEqual(["co founder", "ceo president"]);
+    expect(splitTitle("Founder & E-commerce Manager")).toEqual(["founder", "e commerce manager"]);
+  });
+});
+
+describe("titleWords", () => {
+  test.each([
+    ["M.D.", "md"],
+    ["c.e.o.", "ceo"],
+    ["Chief Executive Officer - Apex S.A. (Luxembourg)", "chief executive officer apex sa luxembourg"],
+    ["Adm. direktør", "adm direktør"],
+    ["Head of R&D, EMEA", "head of r d emea"],
+  ])("%s", (value, words) => {
+    expect(titleWords(value)).toBe(words);
   });
 });
 
@@ -56,6 +80,9 @@ describe("titleMatches", () => {
     expect(titleMatches("Co-Founder and Chairman", "Co-Founder")).toBe(true);
     expect(titleMatches("Head of Engineering, EMEA", "Head of Engineering")).toBe(true);
     expect(titleMatches("Chief Executive Officer (CEO)", "CEO")).toBe(true);
+    expect(titleMatches("Managing Director - Lettings", "Managing Director")).toBe(true);
+    expect(titleMatches("M.D. / Founder", "MD")).toBe(true);
+    expect(titleMatches("Founder,,owner,c.e.o.", "CEO")).toBe(true);
   });
 
   test("matches the whole title, for job titles holding a separator", () => {

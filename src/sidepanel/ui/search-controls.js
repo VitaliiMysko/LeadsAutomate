@@ -417,6 +417,8 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
     } else {
       removeUnresolved(name);
       if (result.count === 0) {
+        // A results page with no leads was read all the same.
+        countPage();
         log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
       } else {
         log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
