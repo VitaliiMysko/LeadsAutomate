@@ -46,6 +46,9 @@ export const LEAD_GENERATOR = {
   panelOpenTimeoutMs: 15000,
   // Pause between two pings while the opened panel loads.
   panelPollMs: 500,
+  // The website Extract reads when the company has none: Lead generator's
+  // own placeholder (its NO_WEBSITE_FOUND_TEXT), not LinkedIn's text.
+  noWebsiteText: "No website found",
 };
 
 // How many shorter names (name-variants.js) a search may try after the name
