@@ -4,16 +4,24 @@ import { normalizeName } from "./text-utils.js";
 // priorities of the board's columns (priority-board.js, getBoardPlan).
 // Leads: [{ index, name, title, ... }] in page order.
 
-// Lower case, punctuation and symbols as spaces: "Head of R&D, EMEA" →
-// "head of r d emea".
+// Single letters joined by dots, an abbreviation: "M.D.", "c.e.o", "U.S.".
+const DOTTED_ABBREVIATION = /(?<![\p{L}\p{N}])\p{L}(?:\.\p{L})+\.?(?![\p{L}\p{N}])/gu;
+
+// Lower case, dotted abbreviations as one word ("M.D." → "md"), other
+// punctuation and symbols as spaces: "Head of R&D, EMEA" → "head of r d emea".
 export function titleWords(value) {
-  return normalizeName(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return normalizeName(value)
+    .replace(DOTTED_ABBREVIATION, (abbreviation) => abbreviation.replace(/\./g, ""))
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 // What separates the titles a lead holds at once: "and", "at" (whole words,
-// any case), & / | , ( ) [ ] @ ;
-// "Technical Director at Acme" → "Technical Director", "Acme".
-const TITLE_SEPARATOR = /(?<![\p{L}\p{N}])(?:and|at)(?![\p{L}\p{N}])|[&/|,()[\]@;]/iu;
+// any case), & / | , ( ) [ ] @ ; : + and a dash (- – —) with a space on
+// either side; a hyphen within a word ("Co-Founder") doesn't separate.
+// "Technical Director at Acme" → "Technical Director", "Acme";
+// "Managing Director - Lettings" → "Managing Director", "Lettings".
+const TITLE_SEPARATOR = /(?<![\p{L}\p{N}])(?:and|at)(?![\p{L}\p{N}])|[&/|,()[\]@;:+]|\s[-–—]|[-–—]\s/iu;
 
 // The separate titles of a lead's job title, compared as titleWords.
 export function splitTitle(leadTitle) {
