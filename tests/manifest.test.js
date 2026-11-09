@@ -17,3 +17,19 @@ describe("manifest key", () => {
     expect(extensionIdFromKey(manifest.key)).toBe("ofbkinmakmfacepccjcbmjgecdppolki");
   });
 });
+
+describe("Firefox", () => {
+  // Firefox ignores `key`; Lead generator must list this id as well.
+  test("has a fixed add-on id", () => {
+    expect(manifest.browser_specific_settings.gecko.id).toBe("leads-automate@future-processing.com");
+  });
+
+  // Firefox runs background scripts, Chrome the service worker: the same file.
+  test("loads the same background script in both browsers", () => {
+    expect(manifest.background.scripts).toEqual([manifest.background.service_worker]);
+  });
+
+  test("opens the same panel page as the Chrome side panel", () => {
+    expect(manifest.sidebar_action.default_panel).toBe(manifest.side_panel.default_path);
+  });
+});

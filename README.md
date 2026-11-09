@@ -1,6 +1,6 @@
 # Leads Automate
 
-Chrome side-panel extension (Manifest V3) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. For each company it takes leads by job-title priority and saves them through the [Lead generator](../LeadGenerator) extension. On a **company search** (`linkedin.com/sales/search/company`) it exports the companies to a CSV file.
+Chrome side-panel extension (Manifest V3, also runs in Firefox as a sidebar) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. For each company it takes leads by job-title priority and saves them through the [Lead generator](../LeadGenerator) extension. On a **company search** (`linkedin.com/sales/search/company`) it exports the companies to a CSV file.
 
 ## Features (v0.7)
 
@@ -113,11 +113,23 @@ The manifest `key` gives the extension the same id wherever it's loaded from. An
 
 The `management` permission is used only to find Lead generator among the installed extensions. The `webRequest` permission (with `linkedin.com/sales-api/*`) only reads the status codes of Sales Navigator's requests, to notice LinkedIn's request limit (HTTP 429).
 
-Requires Chrome 116+.
+Requires Chrome 121+ or Firefox 128+.
+
+### Firefox
+
+The same folder loads in Firefox; no build step.
+
+1. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select `manifest.json` (a temporary add-on is removed when Firefox closes).
+2. Reload any Sales Navigator tabs that were already open.
+3. Click the extension's toolbar icon to open or close the sidebar. Firefox's sidebar belongs to the window, not to a tab, so it stays open on other tabs; the panel then says to open a Sales Navigator search.
+4. Firefox lets you withhold or revoke the LinkedIn host permissions. Without them the panel shows **Allow access** at the top; click it, then reload the Sales Navigator tab.
+5. Lead generator must be its Firefox build, and must accept this extension's add-on id `leads-automate@future-processing.com` (fixed by `browser_specific_settings.gecko.id`, as the `key` fixes the Chrome id).
+
+Firefox warns about the Chrome-only manifest keys (`key`, `side_panel`, `minimum_chrome_version`, the `sidePanel` permission), and Chrome about `sidebar_action` and `browser_specific_settings`; both ignore them.
 
 ## How it works
 
-- `src/background.js` enables the side panel only on Sales Navigator tabs.
+- `src/background.js` enables the side panel only on Sales Navigator tabs (Chrome), or makes the toolbar icon toggle the sidebar (Firefox).
 - The side panel (`sidepanel.html`, `src/sidepanel/`) does all the orchestration. It reads the search filters from the tab URL: Sales Navigator stores them in the `query` parameter in Rest.li syntax, parsed by `src/utils/restli-query.js`. This works in any interface language and doesn't depend on LinkedIn's hashed class names. The URL is also used to check that each step (removing the old company, applying the new one) really happened.
 - The content script (`src/content/`) performs the individual page steps:
   - switch the page to a URL without a filter (in-page navigation);
