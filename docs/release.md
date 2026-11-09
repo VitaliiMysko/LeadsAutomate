@@ -65,8 +65,6 @@ Create a GitHub Environment named `production` (Settings → Environments) with 
 
 When this extension is published under the same publisher as Lead generator, it reuses the same service account, key and `CWS_PUBLISHER_ID`; only `CWS_EXTENSION_ID` differs.
 
-This repository is private: GitHub enforces an Environment's required reviewers on a private repository only on a paid plan (GitHub Pro, Team or Enterprise). Without one, `upload` and `publish` run without waiting for approval.
-
 ## First release (one-time)
 
 The API can only update an item that already exists, so the first package is uploaded by hand:
@@ -74,7 +72,7 @@ The API can only update an item that already exists, so the first package is upl
 1. `npm run release:chrome -- --dry-run` builds `release/leads-automate-v<version>.zip`.
 2. Developer Dashboard → **Add new item** → upload the zip. The item gets its ID; set it as `CWS_EXTENSION_ID`.
 3. **Store listing**: paste `docs/chrome-web-store/description.md`, choose a category and language, add the 128×128 icon (`assets/icons/logo-128.png`) and at least one screenshot (1280×800 or 640×400).
-4. **Privacy**: paste `single-purpose.md` and each `privacy/*.md` into its field; answer "No" to remote code; under data usage declare the data the extension handles (website content, and personally identifiable information for the lead names it reads from the page) and confirm the three certifications; give the URL of a public copy of `PRIVACY_POLICY.md` (this repository is private, so its GitHub link isn't reachable).
+4. **Privacy**: paste `single-purpose.md` and each `privacy/*.md` into its field; answer "No" to remote code; under data usage declare the data the extension handles (website content, and personally identifiable information for the lead names it reads from the page) and confirm the three certifications; give the privacy policy URL: https://github.com/VitaliiMysko/LeadsAutomate/blob/master/PRIVACY_POLICY.md.
 5. **Distribution** → Visibility **Private**: either the publisher's Google Workspace domain, or **Trusted testers**, whose Google account emails are listed in the Dashboard's account settings. Only those accounts can see and install the extension.
 6. **Submit for review**.
 7. Add the new item ID to Lead generator's `COMPANION_EXTENSION_IDS` and release Lead generator: it answers only extension ids it knows.
