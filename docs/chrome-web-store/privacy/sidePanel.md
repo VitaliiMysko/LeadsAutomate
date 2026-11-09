@@ -1,0 +1,1 @@
+Leads Automate's whole user interface is a side panel shown next to a LinkedIn Sales Navigator tab, so the user can see the search and the panel at the same time. The `sidePanel` permission opens that panel when the user clicks the extension's icon, and keeps it available only on Sales Navigator tabs.

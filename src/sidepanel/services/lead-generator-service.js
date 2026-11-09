@@ -1,13 +1,16 @@
 import { LEAD_GENERATOR, TIMING } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
+import { idsForThisBrowser } from "../../utils/extension-ids.js";
 import { FatalError } from "./tab-service.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Runs the Lead generator extension's Extract, Generate and Save for the lead
 // opened on the search tab, through its companion API (messages to its panel
-// on that tab, which it's asked to open when it isn't). Lead generator answers only this
-// extension's id, fixed by the manifest key.
+// on that tab, which it's asked to open when it isn't). Lead generator is
+// reached by its known ids (LEAD_GENERATOR.ids) and answers only this
+// extension's ids: the Web Store one and the one the manifest key fixes for
+// an unpacked copy.
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -27,16 +30,6 @@ async function request(extensionId, action, tabId, timeout) {
   );
   if (!response?.ok) throw new Error(response?.error || `no answer to "${action}"`);
   return response.result;
-}
-
-// Installed, enabled copies of Lead generator, the published (Web Store) one
-// first and unpacked development ones last.
-async function installedIds() {
-  const extensions = await chrome.management.getAll();
-  return extensions
-    .filter((extension) => extension.enabled && extension.type === "extension" && extension.name === LEAD_GENERATOR.name)
-    .sort((a, b) => (a.installType === "development") - (b.installType === "development"))
-    .map((extension) => extension.id);
 }
 
 // The version of the Lead generator `id` whose panel answers on `tabId`, or
@@ -91,10 +84,11 @@ function client(id, tabId) {
 
 // Finds the Lead generator whose panel answers on `tabId`, opening its panel
 // there when none is open; returns a client with its steps. Throws
-// FatalError when it isn't installed or its panel can't be opened there.
+// FatalError when none answers: not installed or disabled, too old, or its
+// panel can't be opened there. A message to an id that isn't installed
+// fails at once.
 export async function connectLeadGenerator(tabId, log) {
-  const ids = await installedIds();
-  if (!ids.length) throw new FatalError(`${LEAD_GENERATOR.name} isn't installed or is disabled`);
+  const ids = idsForThisBrowser(chrome.runtime.id, LEAD_GENERATOR.ids);
 
   for (const id of ids) {
     const version = await ping(id, tabId, log);
@@ -111,6 +105,6 @@ export async function connectLeadGenerator(tabId, log) {
     }
   }
   throw new FatalError(
-    `${LEAD_GENERATOR.name}'s panel couldn't be opened: update ${LEAD_GENERATOR.name}, or open its panel on the Sales Navigator tab (its icon on the page), then search again`
+    `${LEAD_GENERATOR.name} didn't answer: check that it's installed, enabled and up to date, or open its panel on the Sales Navigator tab (its icon on the page), then search again`
   );
 }
