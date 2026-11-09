@@ -9,6 +9,7 @@ import { initSearchControls } from "./ui/search-controls.js";
 import { initCollapsibleCards } from "./ui/collapsible-cards.js";
 import { initCompanyExport } from "./ui/company-export.js";
 import { initLeadTitles } from "./ui/lead-titles.js";
+import { initHostAccess } from "./ui/host-access.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -54,6 +55,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     copyButton: $("log-copy-btn"),
     clearButton: $("log-clear-btn"),
   });
+  await initHostAccess({ card: $("host-access"), button: $("host-access-btn") });
 
   await initJobBoard({
     root: $("job-board"),

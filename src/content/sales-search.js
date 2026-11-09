@@ -114,7 +114,12 @@ if (!window.leadsAutomate.salesSearchInit) {
         ? { ...previousState, path: target.pathname + target.search }
         : previousState;
     history.replaceState(state, "", target.href);
-    window.dispatchEvent(new PopStateEvent("popstate", { state }));
+    // In Firefox the page's own code can't read an object this script made
+    // (Xray wrappers), so the router would get an unreadable state: it's
+    // cloned into the page first. Chrome has no cloneInto and needs none.
+    const eventState =
+      typeof cloneInto === "function" && state && typeof state === "object" ? cloneInto(state, window) : state;
+    window.dispatchEvent(new PopStateEvent("popstate", { state: eventState }));
     return {};
   }
 

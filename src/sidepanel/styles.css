@@ -186,6 +186,25 @@ h2 {
   gap: 8px;
 }
 
+/* Firefox: the host permissions were withheld or revoked. */
+.host-access {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  flex-direction: row;
+  align-items: center;
+}
+
+.host-access[hidden] {
+  display: none;
+}
+
+.host-access__text {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--warn);
+}
+
 .card__head {
   display: flex;
   align-items: center;
