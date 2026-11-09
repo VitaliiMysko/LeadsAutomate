@@ -29,12 +29,13 @@ async function request(extensionId, action, tabId, timeout) {
   return response.result;
 }
 
-// Installed, enabled copies of Lead generator, development ones first.
+// Installed, enabled copies of Lead generator, the published (Web Store) one
+// first and unpacked development ones last.
 async function installedIds() {
   const extensions = await chrome.management.getAll();
   return extensions
     .filter((extension) => extension.enabled && extension.type === "extension" && extension.name === LEAD_GENERATOR.name)
-    .sort((a, b) => (b.installType === "development") - (a.installType === "development"))
+    .sort((a, b) => (a.installType === "development") - (b.installType === "development"))
     .map((extension) => extension.id);
 }
 

@@ -107,7 +107,7 @@ Board (including manual titles), lead counts, company name, the companies list, 
 1. `chrome://extensions/` → enable **Developer mode** → **Load unpacked** → select this folder.
 2. Reload any Sales Navigator tabs that were already open.
 3. On a Sales Navigator tab, click the extension's toolbar icon to open the side panel. The panel is available only on `linkedin.com/sales/*` tabs.
-4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself.
+4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself. When both the Chrome Web Store Lead generator and an unpacked copy are installed and enabled, the Web Store one is used; disable it to test an unpacked copy.
 
 The manifest `key` gives the extension the same id wherever it's loaded from. An install from before the key (v0.5) had a different id, so Chrome treats this as a new extension and its stored data (board, companies list, logos) doesn't carry over: **Save to file** the job titles before reloading.
 
