@@ -1,0 +1,199 @@
+name: Release to Chrome Web Store
+
+on:
+  push:
+    branches: [prod]
+  pull_request:
+    branches: [prod]
+  workflow_dispatch: {}
+
+# The Store item must never be touched by two releases at once. A new run
+# waits for the previous one rather than cancelling it mid-upload/publish.
+concurrency:
+  group: chrome-web-store-release
+  cancel-in-progress: false
+
+jobs:
+  # Runs for both a real release (push/workflow_dispatch on prod) and a PR
+  # into prod, so problems surface before merge. Only push/workflow_dispatch
+  # continue on to build/upload/publish — see build's `if:` below.
+  validate:
+    if: |
+      (github.event_name != 'pull_request' && github.ref == 'refs/heads/prod') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'prod')
+    runs-on: ubuntu-latest
+    outputs:
+      listing_changed: ${{ steps.listing-check.outputs.listing_changed }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Validate Chrome Web Store documentation
+        run: npm run validate:chrome-store
+
+      - name: Validate manifest.json version was bumped
+        run: npm run release:chrome:validate-version
+
+      - name: Check whether the Chrome Web Store listing docs changed
+        id: listing-check
+        run: node scripts/chrome-web-store/detect-listing-changes.js
+
+  # A PR into prod stops after validate — no package is built, nothing is
+  # uploaded or published, and no Store credentials are touched, for a PR
+  # that hasn't been merged yet.
+  build:
+    needs: validate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build and package the extension
+        run: npm run release:chrome:package
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-web-store-package
+          path: release/*.zip
+          retention-days: 5
+          if-no-files-found: error
+
+      - name: Next-step summary
+        run: |
+          {
+            echo "## ⏸ Waiting for your approval"
+            echo ""
+            echo "This run is paused before it uploads to the Chrome Web Store."
+            echo ""
+            echo "**To continue:** scroll to the top of this page, click **Review deployments** (yellow banner), check **production**, then **Approve and deploy**."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  upload:
+    needs: [build, validate]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+            package.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: chrome-web-store-package
+          path: release
+
+      - name: Authenticate, upload package, and verify upload status
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: |
+          zip_file=$(ls release/*.zip)
+          node scripts/chrome-web-store/run-upload.js "$zip_file"
+
+      - name: Next-step summary
+        env:
+          LISTING_CHANGED: ${{ needs.validate.outputs.listing_changed }}
+        run: |
+          {
+            echo "## ✓ Uploaded — one more approval needed"
+            echo ""
+            if [ "$LISTING_CHANGED" = "true" ]; then
+              echo "\`docs/chrome-web-store/\` changed in this release. **Before approving the next step:**"
+              echo "1. Open the Chrome Web Store Developer Dashboard for this item."
+              echo "2. Copy the updated text from \`docs/chrome-web-store/\` into the matching Dashboard fields (description, single purpose, privacy justifications) and save — the API can't do this part."
+              echo ""
+              echo "Then scroll to the top of this page, click **Review deployments**, check **production**, and **Approve and deploy** — first for **listing-sync-checkpoint** (just a sign-off, no API calls), then again for **publish**."
+            else
+              echo "Scroll to the top of this page, click **Review deployments**, check **production**, and **Approve and deploy** to continue to **publish** — the step that actually submits the item for Google's review."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Only requested when docs/chrome-web-store/ changed since the last prod
+  # release (see validate's "listing-check" step). Runs no API calls of its
+  # own — approving it is the developer's sign-off that they've manually
+  # copied the updated description/single-purpose/privacy text into the
+  # Chrome Web Store Developer Dashboard, since the API can't do that part.
+  listing-sync-checkpoint:
+    needs: [validate, upload]
+    if: needs.validate.outputs.listing_changed == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - run: echo "Approved - Chrome Web Store Dashboard listing has been manually synced with docs/chrome-web-store/."
+
+      - name: Next-step summary
+        run: |
+          {
+            echo "## ✓ Listing sync confirmed — one more approval needed"
+            echo ""
+            echo "Scroll to the top of this page, click **Review deployments**, check **production**, and **Approve and deploy** for **publish** — the step that actually submits the item for Google's review."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: [upload, listing-sync-checkpoint]
+    if: |
+      always() &&
+      needs.upload.result == 'success' &&
+      (needs.listing-sync-checkpoint.result == 'success' || needs.listing-sync-checkpoint.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+            package.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Authenticate and publish
+        env:
+          CWS_SERVICE_ACCOUNT_KEY: ${{ secrets.CWS_SERVICE_ACCOUNT_KEY }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/chrome-web-store/run-publish.js
+
+      - name: Result summary
+        run: |
+          {
+            echo "## ✓ Submitted for Google's review"
+            echo ""
+            echo "Nothing left to approve — this run is done. This does **not** mean the extension is live yet; Google's review still has to pass."
+            echo ""
+            echo "Check the Chrome Web Store Developer Dashboard for the item's real status. If it still shows a clickable **Submit for review** button right after this, try a hard refresh first — that's been a stale-UI quirk here before, not an actual failure."
+          } >> "$GITHUB_STEP_SUMMARY"

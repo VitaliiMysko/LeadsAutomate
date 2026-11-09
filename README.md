@@ -2,7 +2,7 @@
 
 Chrome side-panel extension (Manifest V3, also runs in Firefox as a sidebar) for **LinkedIn Sales Navigator people search** (`linkedin.com/sales/search/people`). It prioritizes the job titles from the search's "Current job title" filter and runs company-by-company searches through the "Current company" filter. For each company it takes leads by job-title priority and saves them through the [Lead generator](../LeadGenerator) extension. On a **company search** (`linkedin.com/sales/search/company`) it exports the companies to a CSV file.
 
-## Features (v0.7)
+## Features (v0.8)
 
 The panel shows these sections, top to bottom:
 1. status area;
@@ -48,7 +48,7 @@ Every section except the status area can be collapsed to its header: click the h
 - **Daily limit of found leads** (Settings card, off by default; 1–1000, 50 by default): turned on by its checkbox, it stops the work once that many new leads were found (saved by Lead generator) today; a lead *Already saved* by an earlier search isn't counted. The count of the day is shown in Statistics as *Daily limit*: a progress bar with *12 / 50* (only the count, *12 / unlimited*, without a bar while the setting is off; the bar and the outline turn orange once the limit is reached), starts over at local midnight, and isn't affected by **Reset** in Statistics. The company being processed is always finished, even when the limit is reached during it (so the day's count may end above the limit); after that no new company search starts (**Search**, **Search next**, **Search all**, the list's **Search**). The status area and the log give the reason, and **Search all** stops, leaving the next company to search. Raise the limit or turn it off to go on.
 - **Failed leads in a row per company** (Settings card, off by default; 1–100, 5 by default): turned on by its checkbox, lead selection for a company stops once this many leads tried for it one after another weren't saved (not opened, Extract failed, no email, not saved); a saved lead (also *Already saved*) starts the count over. A lead whose company has *No website found* isn't counted and doesn't start the count over. No further lead or results page is tried for that company, the log says so, and the work goes on with the next company (**Search all**, **Search next**). The value is remembered.
 - **Record leads' job titles** (Settings card, off by default; remembered): while it's on, the job titles of the leads on every results page read for a company of the companies file (**Search next**, **Search all**, the list's **Search**, or **Search** with a name from the file) are counted, all the leads on the page except the locked ones (*View profile*), not only those tried. Titles that differ only in letter case, punctuation and spaces count as one (as lead selection compares them, *Co-founder* = *Co Founder*), shown as first seen; a lead without a title is left out. Processing the file from its first company (after loading it or **↺**) starts the record over; **Stop** and going on keeps adding to it. The line under the setting shows how many titles, leads and companies are recorded, since when. **Download CSV** saves them (`lead-titles-<date>.csv`, UTF-8 with a BOM) with the columns `job_title`, `count` (how many leads had it) and `column` (the board column whose items take that title now, empty for none), most frequent first: the empty ones are the titles to consider for the columns.
-- **Lead generator**: must be installed and enabled; it's found among the installed extensions by its name. When its panel isn't open on the search tab, the extension opens it there itself after a random 0.8–2 s pause, as a click on its icon does, and waits up to 15 s for it to load (the log says *Opened the Lead generator panel*). It answers only this extension, whose id the manifest `key` fixes (`ofbkinmakmfacepccjcbmjgecdppolki`). When it isn't installed, its panel can't be opened (a version without that, or the page doesn't show its icon) or doesn't answer, or its saved leads limit is reached, the search stops with the reason in the status area and the log, and **Search all** stops too.
+- **Lead generator**: must be installed and enabled; it's reached by its known ids (`LEAD_GENERATOR.ids` in `src/constants/config.js`: the Chrome Web Store one, and the Firefox add-on id). When its panel isn't open on the search tab, the extension opens it there itself after a random 0.8–2 s pause, as a click on its icon does, and waits up to 15 s for it to load (the log says *Opened the Lead generator panel*). It answers only this extension's ids: the Chrome Web Store one and the one the manifest `key` fixes for an unpacked copy (`ofbkinmakmfacepccjcbmjgecdppolki`). When it isn't installed, its panel can't be opened (a version without that, or the page doesn't show its icon) or doesn't answer, or its saved leads limit is reached, the search stops with the reason in the status area and the log, and **Search all** stops too.
 - **No matches**: when Sales Navigator shows *No matches found* (a filter, e.g. *Current job title*, leaves nobody), the search counts as having no leads and no lead is opened. The banner is recognized by its illustration (`empty-room`), not its text.
 - **LinkedIn's request limit**: once LinkedIn refuses a Sales Navigator request with HTTP 429 (*Too many requests*: the account's daily limit is used up), the search stops at its next page step, with the reason and the time in the status area and the log, and **Search all** stops too, leaving the company to search again. Each new search forgets an earlier refusal, so it tries again and stops at once while the limit holds.
 - **Required job titles**: every search (**Search**, **Search next**, **Search all**, and **Search** in the *Needs manual choice* list) needs at least one title or group in some column. With every column empty the search doesn't start: the status area and the log show an error, and the *Job titles* section opens.
@@ -107,11 +107,11 @@ Board (including manual titles), lead counts, company name, the companies list, 
 1. `chrome://extensions/` → enable **Developer mode** → **Load unpacked** → select this folder.
 2. Reload any Sales Navigator tabs that were already open.
 3. On a Sales Navigator tab, click the extension's toolbar icon to open the side panel. The panel is available only on `linkedin.com/sales/*` tabs.
-4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself. When both the Chrome Web Store Lead generator and an unpacked copy are installed and enabled, the Web Store one is used; disable it to test an unpacked copy.
+4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself. The Chrome Web Store Lead generator is used. To test an unpacked copy, add its id (from `chrome://extensions`) to `LEAD_GENERATOR.ids` in `src/constants/config.js`, after the Web Store one, and disable the Web Store copy.
 
 The manifest `key` gives the extension the same id wherever it's loaded from. An install from before the key (v0.5) had a different id, so Chrome treats this as a new extension and its stored data (board, companies list, logos) doesn't carry over: **Save to file** the job titles before reloading.
 
-The `management` permission is used only to find Lead generator among the installed extensions. The `webRequest` permission (with `linkedin.com/sales-api/*`) only reads the status codes of Sales Navigator's requests, to notice LinkedIn's request limit (HTTP 429).
+The `webRequest` permission (with `linkedin.com/sales-api/*`) only reads the status codes of Sales Navigator's requests, to notice LinkedIn's request limit (HTTP 429).
 
 Requires Chrome 121+ or Firefox 128+.
 
@@ -141,6 +141,15 @@ Firefox warns about the Chrome-only manifest keys (`key`, `side_panel`, `minimum
   - read the companies of a company search's results page.
 
   The side panel decides which option to select (`src/utils/company-match.js`). All DOM selectors are in `src/content/selectors.js`; when Sales Navigator's markup changes, update them there.
+
+## Chrome Web Store
+
+The extension is published privately (to listed users only) on the Chrome Web Store. The listing texts live in `docs/chrome-web-store/`, the privacy policy in [PRIVACY_POLICY.md](PRIVACY_POLICY.md), and the release pipeline (`master` → `prod`, GitHub Actions) is described in [docs/release.md](docs/release.md). The Store package leaves out the manifest `key`, so the Store copy has its own id.
+
+```
+npm run validate:chrome-store         # listing texts vs. manifest permissions and length limits
+npm run release:chrome -- --dry-run   # validate, then build release/leads-automate-v<version>.zip
+```
 
 ## Tests
 

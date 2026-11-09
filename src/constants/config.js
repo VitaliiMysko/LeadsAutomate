@@ -35,10 +35,13 @@ export const TIMING = {
   leadGeneratorStepTimeoutMs: 120000,
 };
 
-// The companion Lead generator extension, found by its name among the
-// installed extensions.
+// The companion Lead generator extension.
 export const LEAD_GENERATOR = {
   name: "Lead generator",
+  // Its ids, tried in this order (only those of the running browser): the
+  // Chrome Web Store copy, then the Firefox add-on id. To test an unpacked
+  // Chrome copy, add its id from chrome://extensions after the Web Store one.
+  ids: ["negmangnhbhanhajjpcjgecieghmdldm", "lead-generator@future-processing.com"],
   pingTimeoutMs: 5000,
   // Random pause before opening its panel when it isn't open on the tab.
   beforeOpenPanelMs: [800, 2000],

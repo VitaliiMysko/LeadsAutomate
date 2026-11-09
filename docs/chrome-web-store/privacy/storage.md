@@ -1,0 +1,1 @@
+Leads Automate uses the `storage` permission to keep the user's work locally on their device between sessions: the job-title board and its settings, search settings and limits, the loaded company list and its progress, company logo fingerprints, statistics, an unfinished company export and the log filter. Nothing is sent to any server.
