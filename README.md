@@ -106,8 +106,8 @@ Board (including manual titles), lead counts, company name, the companies list, 
 
 1. `chrome://extensions/` → enable **Developer mode** → **Load unpacked** → select this folder.
 2. Reload any Sales Navigator tabs that were already open.
-3. On a Sales Navigator tab, click the extension's toolbar icon to open the side panel. The panel is available only on `linkedin.com/sales/*` tabs.
-4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself. The Chrome Web Store Lead generator is used. To test an unpacked copy, add its id (from `chrome://extensions`) to `LEAD_GENERATOR.ids` in `src/constants/config.js`, after the Web Store one, and disable the Web Store copy.
+3. On a Sales Navigator tab, click the extension's toolbar icon to open the side panel. The panel is available only on `linkedin.com/sales/*` tabs. A copy loaded this way (or as a temporary add-on in Firefox) shows a greyscale toolbar icon and *(dev)* after the version in the panel's header, as Lead generator does, to tell it apart from the Web Store one.
+4. Install a [Lead generator](../LeadGenerator) version with the companion API (after 3.5.0), which lets this extension open its panel. With an older one, open its panel on the search tab yourself. The Chrome Web Store Lead generator is used. To test an unpacked copy, copy `local.settings.example.json` to `local.settings.json` in this folder, put its id (from `chrome://extensions`) in `leadGeneratorIds`, reload this extension and disable the Web Store copy. Those ids are tried before the known ones. `local.settings.json` is git-ignored and never goes into the Store package.
 
 The manifest `key` gives the extension the same id wherever it's loaded from. An install from before the key (v0.5) had a different id, so Chrome treats this as a new extension and its stored data (board, companies list, logos) doesn't carry over: **Save to file** the job titles before reloading.
 

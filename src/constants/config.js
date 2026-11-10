@@ -40,7 +40,8 @@ export const LEAD_GENERATOR = {
   name: "Lead generator",
   // Its ids, tried in this order (only those of the running browser): the
   // Chrome Web Store copy, then the Firefox add-on id. To test an unpacked
-  // Chrome copy, add its id from chrome://extensions after the Web Store one.
+  // copy, list its id from chrome://extensions in local.settings.json (see
+  // local.settings.example.json): those ids are tried first.
   ids: ["negmangnhbhanhajjpcjgecieghmdldm", "lead-generator@future-processing.com"],
   pingTimeoutMs: 5000,
   // Random pause before opening its panel when it isn't open on the tab.
