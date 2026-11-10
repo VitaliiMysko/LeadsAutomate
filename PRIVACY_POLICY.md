@@ -1,7 +1,7 @@
 # Privacy Policy for Leads Automate Extension
 
 **Effective Date**: November 9, 2026
-**Last Updated**: November 9, 2026
+**Last Updated**: November 10, 2026
 
 This privacy policy explains what information the **Leads Automate** extension handles and how.
 
@@ -24,7 +24,7 @@ The extension does not collect anything in the background, does not track browsi
 
 ## 3. Companion extension (Lead Generator)
 
-Picked leads are opened on the page and handed to the separately installed **Lead Generator** extension by the same developer, which extracts the lead's details, generates an email and saves the lead (see Lead Generator's own privacy policy). Lead Generator returns the outcome to Leads Automate: the person's name, job position, company name and website, the generated email and whether the lead was saved. This exchange happens entirely inside the user's browser, between the two extensions.
+Picked leads are opened on the page and handed to the separately installed **Lead Generator** extension by the same developer, which extracts the lead's details, generates an email and saves the lead (see [Lead Generator's own privacy policy](https://vitaliimysko.github.io/LeadGenerator/PRIVACY_POLICY.html)). Lead Generator returns the outcome to Leads Automate: the person's name, job position, company name and website, the generated email and whether the lead was saved. This exchange happens entirely inside the user's browser, between the two extensions.
 
 ## 4. Information stored on the user's device
 
@@ -57,3 +57,7 @@ Its only network requests go to LinkedIn: the Sales Navigator pages the user is 
 ## 7. Changes to this policy
 
 Changes to this policy are published with a new "Last Updated" date.
+
+## 8. Contact
+
+For questions about this privacy policy or the extension's data practices, contact the developer at [vitalij.musko@gmail.com](mailto:vitalij.musko@gmail.com).
