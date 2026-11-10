@@ -9,6 +9,33 @@
 // that isn't one).
 const SALES_NAVIGATOR_URL_REGEX = /^https:\/\/www\.linkedin\.com\/sales\//;
 const PANEL_PATH = "sidepanel.html";
+const ICON_PATHS = { 16: "assets/icons/logo-16.png", 32: "assets/icons/logo-32.png" };
+
+// A copy loaded unpacked (Chrome) or as a temporary add-on (Firefox) shows
+// its toolbar icon in greyscale, as Lead generator does, to tell it apart
+// from the installed one. getSelf() needs no "management" permission. The
+// icon set here lasts until the browser restarts, so it's set on every start
+// of this script.
+async function greyIconImageData(path) {
+  const bitmap = await createImageBitmap(await (await fetch(chrome.runtime.getURL(path))).blob());
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext("2d");
+  context.filter = "grayscale(100%)";
+  context.drawImage(bitmap, 0, 0);
+  return context.getImageData(0, 0, bitmap.width, bitmap.height);
+}
+
+async function markDevelopmentCopy() {
+  const { installType } = await chrome.management.getSelf();
+  if (installType !== "development") return;
+  const imageData = {};
+  for (const [size, path] of Object.entries(ICON_PATHS)) imageData[size] = await greyIconImageData(path);
+  await chrome.action.setIcon({ imageData });
+  const sidebarAction = globalThis.browser?.sidebarAction ?? chrome.sidebarAction;
+  await sidebarAction?.setIcon({ imageData });
+}
+
+markDevelopmentCopy().catch(() => {});
 
 // tab.url is only visible for hosts in host_permissions, so it's undefined
 // everywhere outside Sales Navigator, which correctly disables the panel.

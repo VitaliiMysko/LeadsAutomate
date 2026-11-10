@@ -10,6 +10,7 @@ import { initCollapsibleCards } from "./ui/collapsible-cards.js";
 import { initCompanyExport } from "./ui/company-export.js";
 import { initLeadTitles } from "./ui/lead-titles.js";
 import { initHostAccess } from "./ui/host-access.js";
+import { versionLabel } from "../utils/version-label.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -45,7 +46,13 @@ async function refreshJobTitles() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  $("app-version").textContent = `v${chrome.runtime.getManifest().version}`;
+  const version = chrome.runtime.getManifest().version;
+  $("app-version").textContent = versionLabel(version, null);
+  // getSelf() needs no "management" permission.
+  chrome.management
+    ?.getSelf()
+    .then((info) => ($("app-version").textContent = versionLabel(version, info.installType)))
+    .catch(() => {});
 
   initStatus($("status"));
   await initCollapsibleCards();
