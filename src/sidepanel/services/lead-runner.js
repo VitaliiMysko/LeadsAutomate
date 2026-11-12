@@ -64,7 +64,8 @@ async function openLead(tabId, { column, entry, lead }, log) {
 // with a pause before each step. Returns "new" when the lead was saved now,
 // "duplicate" when an earlier search saved it ("Already saved"), "noWebsite"
 // when its company has no website (no Generate then), "invalidDomain" when
-// Generate reports the company's domain as invalid, else null.
+// Generate reports the company's domain as invalid, "unknownEmails" when it
+// couldn't verify the emails yet ("recheck it later"), else null.
 // Throws FatalError when no more leads can be saved (its limit is reached).
 async function saveLead(leadGenerator, lead, log) {
   const pause = () => sleep(randomBetween(...TIMING.betweenLeadGeneratorStepsMs));
@@ -89,7 +90,10 @@ async function saveLead(leadGenerator, lead, log) {
   const { email, message } = await leadGenerator.generateEmails();
   if (!email) {
     log.warn(`"${lead.name}": no email (${message}), not saved`);
-    return message?.trim() === LEAD_GENERATOR.invalidDomainText ? "invalidDomain" : null;
+    const text = message?.trim();
+    if (text === LEAD_GENERATOR.invalidDomainText) return "invalidDomain";
+    if (text === LEAD_GENERATOR.unknownEmailsText) return "unknownEmails";
+    return null;
   }
   log.info(`"${lead.name}": email ${email}`);
 
@@ -143,13 +147,15 @@ async function readPage(tabId, page, offset, log) {
 // company limit; otherwise the next matching lead is tried. Stops once the
 // company limit is reached, or once `maxFailed` leads in a row weren't
 // saved (null: no such stop), or once Lead generator reports the company's
-// domain as invalid, so the work goes on with the next company.
+// domain as invalid or can't verify the emails yet (unknown emails), so the
+// work goes on with the next company.
 // Reads up to `pages` results pages, from the one shown: the next page only
 // while a column still wants leads (and the page was full). Returns { leads,
 // pages, tried, columns, saved, wanted, limitReached, failedReached,
-// invalidDomain }, `columns` from countFound, `wanted` the leads the company
-// was asked for (the columns' counts, at most the company limit),
-// `invalidDomain` true when it stopped on an invalid domain.
+// invalidDomain, unknownEmails }, `columns` from countFound, `wanted` the
+// leads the company was asked for (the columns' counts, at most the company
+// limit), `invalidDomain` / `unknownEmails` true when it stopped on that
+// answer of Generate.
 // `onPageRead(leads)` is called after each results page read, with its leads,
 // `onLeadTried(saved, isNew)` after each lead tried, for the statistics
 // (`isNew` false for a lead saved by an earlier search), and
@@ -182,15 +188,17 @@ export async function selectLeads(
   };
   onProgress(leadProgress(columns, tried, companyLimit));
   let page = firstPage;
-  let invalidDomain = false;
+  // The Generate answer that stopped the company: "invalidDomain",
+  // "unknownEmails", or null.
+  let stop = null;
   try {
     for (;;) {
       const leads = await readPage(tab.id, page, allLeads.length, log);
       allLeads.push(...leads);
       onPageRead(leads);
-      invalidDomain = await tryLeads(tab.id, leadGenerator, leads, columns, companyLimit, maxFailed, tried, leadTried, log);
+      stop = await tryLeads(tab.id, leadGenerator, leads, columns, companyLimit, maxFailed, tried, leadTried, log);
 
-      if (invalidDomain) break;
+      if (stop) break;
       if (failedLimitReached(tried, maxFailed)) break;
       if (!wantsMoreLeads(columns, tried, companyLimit)) break;
       if (page >= lastPage) {
@@ -218,14 +226,17 @@ export async function selectLeads(
   for (const [id, column] of Object.entries(found)) {
     const names = tried.filter((item) => item.column === id && item.saved).map((item) => `"${allLeads[item.index].name}"`);
     // Columns short of their count are expected once the company limit is reached.
-    (column.found < column.wanted && !limitReached && !failedReached && !invalidDomain ? log.warn : log.info)(
+    (column.found < column.wanted && !limitReached && !failedReached && !stop ? log.warn : log.info)(
       `${column.name}: ${column.found} of ${column.wanted} leads saved${names.length ? `: ${names.join(", ")}` : ""}`
     );
   }
   if (limitReached) log.info(`Leads per company reached: ${saved} of ${companyLimit}`);
   if (failedReached) log.warn(`${maxFailed} leads in a row weren't saved: going on with the next company`);
-  if (invalidDomain) {
+  if (stop === "invalidDomain") {
     log.warn(`${LEAD_GENERATOR.name}: the company's domain is invalid: no more leads are tried for it`);
+  }
+  if (stop === "unknownEmails") {
+    log.warn(`${LEAD_GENERATOR.name}: unknown emails: no more leads are tried for the company now`);
   }
   return {
     leads: allLeads.length,
@@ -236,14 +247,15 @@ export async function selectLeads(
     wanted: leadProgress(columns, tried, companyLimit).wanted,
     limitReached,
     failedReached,
-    invalidDomain,
+    invalidDomain: stop === "invalidDomain",
+    unknownEmails: stop === "unknownEmails",
   };
 }
 
 // Tries the leads of one results page in priority order, adding to `tried`.
 // Stops once `maxFailed` leads in a row weren't saved (failedLimitReached),
-// or at the first lead whose company's domain Lead generator reports as
-// invalid: returns true then, else false.
+// or at the first lead for which Generate reports the company's domain as
+// invalid or unknown emails: returns that outcome then, else null.
 async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, maxFailed, tried, onLeadTried, log) {
   for (let pick; !failedLimitReached(tried, maxFailed) && (pick = nextPick(leads, columns, tried, companyLimit)); ) {
     const attempt = { index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: false, isNew: false };
@@ -262,7 +274,7 @@ async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, maxF
     }
     onLeadTried(attempt.saved, attempt.isNew);
     if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.columnName} lead for "${pick.entry}"`);
-    if (outcome === "invalidDomain") return true;
+    if (outcome === "invalidDomain" || outcome === "unknownEmails") return outcome;
   }
-  return false;
+  return null;
 }

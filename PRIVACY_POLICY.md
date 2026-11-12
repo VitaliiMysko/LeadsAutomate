@@ -1,7 +1,7 @@
 # Privacy Policy for Leads Automate Extension
 
 **Effective Date**: November 9, 2026
-**Last Updated**: November 10, 2026
+**Last Updated**: November 12, 2026
 
 This privacy policy explains what information the **Leads Automate** extension handles and how.
 
@@ -31,7 +31,7 @@ Picked leads are opened on the page and handed to the separately installed **Lea
 The extension uses the browser's local extension storage to keep, on the user's device only:
 
 - the job-title board, settings and limits;
-- the company list the user loaded, its progress and the companies waiting for a manual choice;
+- the company list the user loaded, its progress, the companies waiting for a manual choice and the companies waiting for a recheck (names and recheck times);
 - fingerprints and small thumbnails of the company logos the user selected;
 - the ids and names of companies read from their public LinkedIn pages;
 - statistics (counts of pages, leads processed and found);
