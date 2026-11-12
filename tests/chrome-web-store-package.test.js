@@ -22,4 +22,9 @@ describe("validatePackageContents", () => {
       expect.arrayContaining([expect.stringContaining("tests"), expect.stringContaining("node_modules")])
     );
   });
+
+  test("fails when the developer's local settings leaked into the package", () => {
+    const errors = validatePackageContents(["manifest.json", "local.settings.json"]);
+    expect(errors).toEqual([expect.stringContaining("local.settings.json")]);
+  });
 });

@@ -40,7 +40,8 @@ export const LEAD_GENERATOR = {
   name: "Lead generator",
   // Its ids, tried in this order (only those of the running browser): the
   // Chrome Web Store copy, then the Firefox add-on id. To test an unpacked
-  // Chrome copy, add its id from chrome://extensions after the Web Store one.
+  // copy, list its id from chrome://extensions in local.settings.json (see
+  // local.settings.example.json): those ids are tried first.
   ids: ["negmangnhbhanhajjpcjgecieghmdldm", "lead-generator@future-processing.com"],
   pingTimeoutMs: 5000,
   // Random pause before opening its panel when it isn't open on the tab.
@@ -52,6 +53,12 @@ export const LEAD_GENERATOR = {
   // The website Extract reads when the company has none: Lead generator's
   // own placeholder (its NO_WEBSITE_FOUND_TEXT), not LinkedIn's text.
   noWebsiteText: "No website found",
+  // Generate's message when its email check reports the company's domain as
+  // invalid: Lead generator's own text (email-validator.js there).
+  invalidDomainText: "Email not found. Domain is invalid",
+  // Generate's message when its email check couldn't tell yet whether the
+  // emails exist (email-validator.js there).
+  unknownEmailsText: "There are unknown emails. Please, recheck it later",
 };
 
 // How many shorter names (name-variants.js) a search may try after the name
@@ -95,6 +102,10 @@ export const FAILED_IN_A_ROW = { min: 1, max: 100, default: 5 };
 // The daily limit of found (saved) leads, when the user turns it on.
 export const DAILY_LIMIT = { min: 1, max: 1000, default: 50 };
 
+// Minutes after Lead generator's "There are unknown emails" until a company
+// is searched again (once), each company on its own clock; set in Settings.
+export const RECHECK_MINUTES = { min: 1, max: 60, default: 3 };
+
 export const STORAGE_KEYS = {
   board: "priorityBoard",
   // Only read: the Management / Technical lead counts of boards saved before
@@ -106,6 +117,8 @@ export const STORAGE_KEYS = {
   logLevels: "logLevels",
   jobSectionOpen: "jobSectionOpen",
   unresolvedCompanies: "unresolvedCompanies",
+  recheckCompanies: "recheckCompanies",
+  recheckMinutes: "recheckMinutes",
   // Only removed: match records kept by earlier versions.
   matchRecords: "companyMatchRecords",
   companyPageIds: "companyPageIds",

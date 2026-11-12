@@ -32,7 +32,7 @@ export function validatePackageContents(entries) {
   if (!entries.includes("manifest.json")) {
     errors.push("Package is missing manifest.json at its root");
   }
-  const forbidden = ["node_modules", "tests", "docs", "scripts", ".github", ".git", "CLAUDE.md", "package.json"];
+  const forbidden = ["node_modules", "tests", "docs", "scripts", ".github", ".git", "CLAUDE.md", "package.json", "local.settings.json"];
   for (const name of forbidden) {
     if (entries.includes(name)) {
       errors.push(`Package must not contain "${name}"`);

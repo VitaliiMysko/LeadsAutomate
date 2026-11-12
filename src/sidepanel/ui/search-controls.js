@@ -1,9 +1,18 @@
-import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT, FAILED_IN_A_ROW } from "../../constants/config.js";
+import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT, FAILED_IN_A_ROW, LEAD_GENERATOR, RECHECK_MINUTES } from "../../constants/config.js";
 import { clampCount } from "../../utils/priority-board.js";
 import { localDateKey, foundToday, addFound, dailyLimitReached } from "../../utils/daily-limit.js";
 import { parseCompaniesFile, companiesCsvColumns, columnMappingLines, hasLogoColumn } from "../../utils/companies-file.js";
 import { companyPagePath } from "../../utils/company-page.js";
 import { formatDuration, randomBetween, isSameName } from "../../utils/text-utils.js";
+import {
+  scheduleRecheck,
+  removeRecheck,
+  findRecheck,
+  dueRecheck,
+  nextRecheckAt,
+  recheckCountdown,
+  parseRechecks,
+} from "../../utils/recheck-queue.js";
 import { logoSimilarity } from "../../utils/image-hash.js";
 import { searchCompany } from "../services/search-runner.js";
 import { selectLeads } from "../services/lead-runner.js";
@@ -12,14 +21,21 @@ import { companyIdFromPage } from "../services/company-page-service.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
 import { startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
-import { restartLeadTitles, countLeadTitlesCompany, recordLeadTitles } from "./lead-titles.js";
+import { countLeadTitlesCompany, recordLeadTitles } from "./lead-titles.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
 
 // "Name company" + Search, the companies file with Search next / Search all
-// / Stop and its progress bar, and the list of companies left for a manual
-// company choice.
+// / Stop and its progress bar, and the manual analysis list: companies left
+// for a manual company choice or, after an invalid domain, for picking their
+// leads by hand.
+//
+// A company whose lead selection stopped on Lead generator's "unknown
+// emails" goes to the recheck list, each on its own clock (recheck-queue.js):
+// once its time runs out, Search all and Search next take it before the next
+// company of the file, always after the company being processed. Its
+// recheck is its last try: the same answer again leaves it as checked.
 //
 // Search, Search next and the list's Search wait for the user to pick the
 // company by hand when it can't be chosen automatically; Search all never
@@ -35,11 +51,21 @@ let elements = null;
 // (`hasLogos`).
 let queue = { fileName: "", companies: [], index: 0, hasLogos: false };
 let logos = {}; // company name → { hash, thumb }
-let unresolved = []; // [{ name, reason }]
+// [{ name, reason, manualLeads }]: companies left for a manual company choice
+// or, after Lead generator reported their domain as invalid, for picking
+// their leads by hand (`manualLeads`: the list's Search applies only the
+// company filter).
+let unresolved = [];
+// [{ name, dueAt }]: companies to search once more (recheck-queue.js).
+let rechecks = [];
+// Whether a recheck was due at the last countdown tick.
+let recheckWasDue = false;
 // Leads tried and saved by lead selection, over all searches until Reset.
 let leadStats = { pages: 0, tried: 0, saved: 0 };
 // How many results pages lead selection may read per search.
 let resultPages = RESULT_PAGES.default;
+// Minutes until a company with unknown emails is searched again.
+let recheckMinutes = RECHECK_MINUTES.default;
 // The daily limit of found leads ({ enabled, value }) and today's count
 // ({ date, saved }, daily-limit.js). Reset of the statistics leaves it.
 let dailyLimit = { enabled: false, value: DAILY_LIMIT.default };
@@ -84,6 +110,10 @@ function renameCompany(company, name) {
   if (unresolved.some((item) => item.name === previous)) {
     unresolved = unresolved.map((item) => (item.name === previous ? { ...item, name } : item));
     persistUnresolved();
+  }
+  if (rechecks.some((item) => item.name === previous)) {
+    rechecks = rechecks.map((item) => (item.name === previous ? { ...item, name } : item));
+    persistRechecks();
   }
   if (elements.companyName.value === previous) setCompanyName(name);
   log.info(`"${previous}" is named "${name}" from its LinkedIn page`);
@@ -243,9 +273,19 @@ function persistUnresolved() {
   saveValue(STORAGE_KEYS.unresolvedCompanies, unresolved);
 }
 
-function addUnresolved(name, reason) {
-  unresolved = [...unresolved.filter((item) => !isSameName(item.name, name)), { name, reason }];
+// `manualLeads` (the item's "Leads by hand"): when not given, an item
+// already on the list keeps its own.
+function addUnresolved(name, reason, manualLeads) {
+  const previous = unresolved.find((item) => isSameName(item.name, name));
+  const entry = { name, reason, manualLeads: manualLeads ?? previous?.manualLeads ?? false };
+  unresolved = [...unresolved.filter((item) => item !== previous), entry];
   persistUnresolved();
+}
+
+function setManualLeads(name, manualLeads) {
+  unresolved = unresolved.map((item) => (isSameName(item.name, name) ? { ...item, manualLeads } : item));
+  persistUnresolved();
+  log.info(`"${name}": ${manualLeads ? "its leads are picked by hand after Search" : "its leads are selected automatically after Search"}`);
 }
 
 function removeUnresolved(name) {
@@ -261,7 +301,7 @@ function renderUnresolved() {
   elements.unresolvedClearButton.disabled = busy;
 
   elements.unresolvedList.replaceChildren(
-    ...unresolved.map(({ name, reason }) => {
+    ...unresolved.map(({ name, reason, manualLeads }) => {
       const item = document.createElement("li");
       item.className = "unresolved__item";
 
@@ -279,9 +319,23 @@ function renderUnresolved() {
       search.type = "button";
       search.className = "btn btn--secondary btn--small";
       search.textContent = "Search";
-      search.title = "Search and pick the company by hand";
+      search.title = "Search the company, picking it by hand when it can't be chosen automatically";
       search.disabled = busy;
       search.addEventListener("click", () => handleResolve(name));
+
+      // "Leads by hand": Search only applies the company filter; the leads
+      // are then picked by hand, with no automatic lead selection.
+      const byHand = document.createElement("label");
+      byHand.className = "toggle unresolved__by-hand";
+      byHand.title = "When on, Search only applies the company filter: pick the leads by hand, no lead is selected automatically";
+      const byHandInput = document.createElement("input");
+      byHandInput.type = "checkbox";
+      byHandInput.checked = manualLeads;
+      byHandInput.disabled = busy;
+      byHandInput.addEventListener("change", () => setManualLeads(name, byHandInput.checked));
+      const byHandText = document.createElement("span");
+      byHandText.textContent = "Leads by hand";
+      byHand.append(byHandInput, byHandText);
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -292,27 +346,109 @@ function renderUnresolved() {
       remove.disabled = busy;
       remove.addEventListener("click", () => {
         removeUnresolved(name);
-        log.info(`"${name}" removed from the manual choice list`);
+        log.info(`"${name}" removed from the manual analysis list`);
         updateControls();
       });
 
-      item.append(text, search, remove);
+      item.append(text, byHand, search, remove);
       return item;
     })
   );
 }
 
+function persistRechecks() {
+  saveValue(STORAGE_KEYS.recheckCompanies, rechecks);
+}
+
+// After a company's search: a recheck leaves the list (unknown emails again
+// leave the company as checked); unknown emails on a first search put the
+// company on the list, due after the recheck delay.
+function endRecheck(name, recheck, unknownEmails) {
+  if (recheck) {
+    rechecks = removeRecheck(rechecks, name);
+    persistRechecks();
+    if (unknownEmails) log.warn(`"${name}": unknown emails again on its recheck: no more rechecks, the company is checked`);
+    else log.info(`"${name}": rechecked`);
+  } else if (unknownEmails) {
+    rechecks = scheduleRecheck(rechecks, name, Date.now(), recheckMinutes * 60000);
+    persistRechecks();
+    log.warn(`"${name}": unknown emails: rechecked in ${recheckMinutes} min, after the company being processed then`);
+  }
+}
+
+// The recheck list, with each company's countdown (updated by
+// tickRechecks without rebuilding the list, so its buttons stay clickable).
+function renderRechecks() {
+  elements.recheckBlock.hidden = rechecks.length === 0;
+  elements.recheckCount.textContent = rechecks.length;
+  elements.recheckClearButton.disabled = busy;
+
+  elements.recheckList.replaceChildren(
+    ...rechecks.map(({ name, dueAt }) => {
+      const item = document.createElement("li");
+      item.className = "unresolved__item";
+
+      const text = document.createElement("span");
+      text.className = "unresolved__text";
+      const title = document.createElement("span");
+      title.className = "unresolved__name";
+      title.textContent = name;
+      const when = document.createElement("span");
+      when.className = "unresolved__reason";
+      when.dataset.dueAt = dueAt;
+      when.textContent = recheckLabel(dueAt);
+      text.append(title, when);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon-btn";
+      remove.textContent = "×";
+      remove.title = "Remove from the list: no recheck";
+      remove.setAttribute("aria-label", `Remove ${name} from the recheck list`);
+      remove.disabled = busy;
+      remove.addEventListener("click", () => {
+        rechecks = removeRecheck(rechecks, name);
+        persistRechecks();
+        log.info(`"${name}" removed from the recheck list`);
+        updateControls();
+      });
+
+      item.append(text, remove);
+      return item;
+    })
+  );
+}
+
+function recheckLabel(dueAt) {
+  const left = recheckCountdown(dueAt, Date.now());
+  return left === "due" ? "Unknown emails · recheck due" : `Unknown emails · recheck in ${left}`;
+}
+
+// Every second: the countdowns, and the buttons once a recheck becomes due.
+function tickRechecks() {
+  for (const when of elements.recheckList.querySelectorAll("[data-due-at]")) {
+    when.textContent = recheckLabel(Number(when.dataset.dueAt));
+  }
+  const due = dueRecheck(rechecks, Date.now()) !== null;
+  if (due !== recheckWasDue) {
+    recheckWasDue = due;
+    updateControls();
+  }
+}
+
 function updateControls() {
   const name = elements.companyName.value.trim();
   const hasNext = queue.index < queue.companies.length;
+  const recheckDue = dueRecheck(rechecks, Date.now()) !== null;
 
   elements.companyName.readOnly = busy;
   elements.resultPagesInput.disabled = busy;
+  elements.recheckMinutesInput.disabled = busy;
   renderDailyLimit();
   renderFailedLimit();
   elements.searchButton.disabled = busy || !name;
-  elements.searchNextButton.disabled = busy || !hasNext;
-  elements.searchAllButton.disabled = busy || !hasNext;
+  elements.searchNextButton.disabled = busy || !(hasNext || recheckDue);
+  elements.searchAllButton.disabled = busy || !(hasNext || rechecks.length);
   elements.stopButton.disabled = !(batchRunning || waitingManual) || stopRequested;
   elements.prevCompanyButton.disabled = busy || queue.index === 0;
   elements.nextCompanyButton.disabled = busy || !hasNext;
@@ -340,6 +476,7 @@ function updateControls() {
 
   renderLeadStats();
   renderUnresolved();
+  renderRechecks();
 }
 
 function setCompanyName(name) {
@@ -348,14 +485,15 @@ function setCompanyName(name) {
 }
 
 // Saves the company's leads through Lead generator by the job-title
-// priorities; returns how many were saved, or null when that failed (a
-// FatalError is passed on). With `recordTitles` (a companies-file company)
-// the job titles of the leads read are recorded (lead-titles.js).
+// priorities; returns { saved, invalidDomain, unknownEmails } (selectLeads), or null when
+// that failed (a FatalError is passed on). With `recordTitles` (a
+// companies-file company) the job titles of the leads read are recorded
+// (lead-titles.js).
 async function runLeadSelection(name, { recordTitles = false } = {}) {
   status.running(`Selecting leads for "${name}"…`);
   if (recordTitles) countLeadTitlesCompany();
   try {
-    const { saved, tried, wanted, pages } = await selectLeads(getJobPriorities(), {
+    const { saved, tried, wanted, pages, invalidDomain, unknownEmails } = await selectLeads(getJobPriorities(), {
       log,
       pages: resultPages,
       maxFailed: failedLimit.enabled ? failedLimit.value : null,
@@ -367,7 +505,7 @@ async function runLeadSelection(name, { recordTitles = false } = {}) {
       onProgress: (progress) => renderCompanyProgress(name, progress),
     });
     (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried, ${pages} results pages read)`);
-    return saved;
+    return { saved, invalidDomain, unknownEmails };
   } catch (error) {
     if (error instanceof FatalError) throw error;
     log.error(`"${name}": selecting leads failed: ${error.message}`);
@@ -377,8 +515,15 @@ async function runLeadSelection(name, { recordTitles = false } = {}) {
 
 // Runs one company search, reporting to the log; status is left to the caller.
 // `company` is the companies-file entry (for its id), else found by name.
-// Returns { ok, fatal, outcome, chosen, count, reason, error }.
-async function runOne(name, { interactive, company = findCompany(name) }) {
+// With `manualLeads` only the company filter is applied: the user picks the
+// leads by hand, no lead selection runs.
+// A company on the recheck list is searched for its recheck: it leaves the
+// list once searched (not after a fatal failure, so it stays due), and
+// unknown emails again leave it as checked. Unknown emails on a first
+// search put it on the list.
+// Returns { ok, fatal, outcome, chosen, count, reason, error, selected,
+// invalidDomain, unknownEmails, recheck, manualLeads }.
+async function runOne(name, { interactive, company = findCompany(name), manualLeads = false }) {
   // Once the daily limit is reached no new company search starts (Search
   // all stops, leaving this company as the next); a company already started
   // is always finished, even past the limit.
@@ -392,7 +537,10 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
   await resolveCompanyId(company);
   // Renamed after its LinkedIn page.
   if (company && company.name !== fileName) name = company.name;
-  log.info(`Search started: "${name}"${company?.companyId ? ` (company id ${company.companyId})` : ""}`);
+  const recheck = findRecheck(rechecks, name) !== null;
+  log.info(
+    `${recheck ? "Recheck" : "Search"} started: "${name}"${company?.companyId ? ` (company id ${company.companyId})` : ""}`
+  );
   const fileLogo = logoFor(name);
   showCurrentLogo(name);
   try {
@@ -420,15 +568,30 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
         // A results page with no leads was read all the same.
         countPage();
         log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
+      } else if (manualLeads) {
+        result.manualLeads = true;
+        log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took}): pick the leads by hand`);
       } else {
         log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
-        result.selected = await runLeadSelection(name, { recordTitles: !!company });
+        const selection = await runLeadSelection(name, { recordTitles: !!company });
+        result.selected = selection?.saved ?? null;
+        result.invalidDomain = selection?.invalidDomain === true;
+        // Lead generator can't give any of its leads an email: the company
+        // goes on the list, its leads to be picked by hand.
+        if (result.invalidDomain) {
+          addUnresolved(name, LEAD_GENERATOR.invalidDomainText, true);
+          log.warn(`"${name}": left for a manual analysis (${LEAD_GENERATOR.invalidDomainText})`);
+        }
+        result.unknownEmails = selection?.unknownEmails === true;
       }
     }
-    return { ok: true, fatal: false, ...result };
+    endRecheck(name, recheck, result.unknownEmails === true);
+    return { ok: true, fatal: false, recheck, ...result };
   } catch (error) {
     log.error(`"${name}": ${error.message}`);
-    return { ok: false, fatal: error instanceof FatalError, error };
+    const fatal = error instanceof FatalError;
+    if (!fatal) endRecheck(name, recheck, false);
+    return { ok: false, fatal, recheck, error };
   } finally {
     waitingManual = false;
     updateControls();
@@ -439,6 +602,13 @@ function finishStatus(name, result) {
   if (!result.ok) status.error(`"${name}" failed: ${result.error.message}`);
   else if (result.outcome === "unresolved") status.warn(`"${name}" needs a manual company choice (${result.reason})`);
   else if (result.count === 0) status.warn(`"${name}" → "${result.chosen}": no leads found`);
+  else if (result.manualLeads) status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, pick the leads by hand`);
+  else if (result.invalidDomain)
+    status.warn(`"${name}" → "${result.chosen}": ${result.selected} saved, then stopped (${LEAD_GENERATOR.invalidDomainText}): left for a manual analysis`);
+  else if (result.unknownEmails && result.recheck)
+    status.warn(`"${name}" → "${result.chosen}": ${result.selected} saved, unknown emails again on the recheck: checked`);
+  else if (result.unknownEmails)
+    status.warn(`"${name}" → "${result.chosen}": ${result.selected} saved, then stopped (unknown emails): recheck in ${recheckMinutes} min`);
   else if (result.selected === null) status.warn(`"${name}" → "${result.chosen}": ${result.count} leads found, selecting them failed`);
   else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} saved`);
 }
@@ -466,10 +636,10 @@ function checkJobTitles() {
   return false;
 }
 
-async function runInteractive(name) {
+async function runInteractive(name, { manualLeads = false } = {}) {
   await withBusy(async () => {
     status.running(`Searching "${name}"…`);
-    finishStatus(name, await runOne(name, { interactive: true }));
+    finishStatus(name, await runOne(name, { interactive: true, manualLeads }));
   });
 }
 
@@ -480,10 +650,13 @@ async function handleSearch() {
   await runInteractive(name);
 }
 
+// The list's Search; with the item's "Leads by hand" it only applies the
+// company filter, so no job titles are needed.
 async function handleResolve(name) {
-  if (busy || !checkJobTitles()) return;
+  const manualLeads = unresolved.find((item) => isSameName(item.name, name))?.manualLeads === true;
+  if (busy || (!manualLeads && !checkJobTitles())) return;
   setCompanyName(name);
-  await runInteractive(name);
+  await runInteractive(name, { manualLeads });
 }
 
 // Shared by Search next and Search all. Doesn't advance past a company when
@@ -491,8 +664,6 @@ async function handleResolve(name) {
 async function searchQueued({ interactive }) {
   const company = queue.companies[queue.index];
   const { name } = company;
-  // Processing the file from its first company is a new start.
-  if (queue.index === 0) restartLeadTitles();
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
   const result = await runOne(name, { interactive, company });
@@ -504,43 +675,85 @@ async function searchQueued({ interactive }) {
   return { name: company.name, result };
 }
 
+// Searches a company of the recheck list whose time ran out (`entry`); it
+// doesn't move the companies file's position.
+async function searchRecheck(entry, { interactive }) {
+  setCompanyName(entry.name);
+  status.running(`Rechecking "${entry.name}" (unknown emails on its first search)…`);
+  const result = await runOne(entry.name, { interactive });
+  updateControls();
+  return { name: entry.name, result };
+}
+
+// The next company for Search next / Search all: a recheck whose time ran
+// out goes before the next company of the file. Null when neither is there.
+function searchNextCompany({ interactive }) {
+  const due = dueRecheck(rechecks, Date.now());
+  if (due) return searchRecheck(due, { interactive });
+  if (queue.index < queue.companies.length) return searchQueued({ interactive });
+  return null;
+}
+
 async function handleSearchNext() {
-  if (busy || queue.index >= queue.companies.length || !checkJobTitles()) return;
+  const ready = queue.index < queue.companies.length || dueRecheck(rechecks, Date.now()) !== null;
+  if (busy || !ready || !checkJobTitles()) return;
   await withBusy(async () => {
-    const { name, result } = await searchQueued({ interactive: true });
+    const next = searchNextCompany({ interactive: true });
+    if (!next) return;
+    const { name, result } = await next;
     finishStatus(name, result);
   });
 }
 
 // Waits `ms`, ending early if Stop is pressed; returns false when stopped.
-async function interruptibleWait(ms) {
+// `note(secondsLeft)` is the status shown meanwhile.
+async function interruptibleWait(ms, note = (left) => `Next company in ${left}s… (${queue.index} of ${queue.companies.length} done)`) {
   const until = Date.now() + ms;
   while (Date.now() < until) {
     if (stopRequested) return false;
-    const left = Math.ceil((until - Date.now()) / 1000);
-    status.note("running", `Next company in ${left}s… (${queue.index} of ${queue.companies.length} done)`);
+    status.note("running", note(Math.ceil((until - Date.now()) / 1000)));
     await new Promise((resolve) => setTimeout(resolve, Math.min(250, until - Date.now())));
   }
   return !stopRequested;
 }
 
+// Search all: the companies of the file, each recheck taken as soon as its
+// time ran out, after the company being processed. Once the file is done,
+// it waits for the rechecks still pending.
 async function handleSearchAll() {
-  if (busy || queue.index >= queue.companies.length || !checkJobTitles()) return;
+  if (busy || (queue.index >= queue.companies.length && !rechecks.length) || !checkJobTitles()) return;
   batchRunning = true;
   const stats = { found: 0, empty: 0, failed: 0 };
   const leftForManual = [];
+  const leftInvalidDomain = [];
+  const leftUnknown = []; // unknown emails again on the recheck
   const startedAt = Date.now();
   let fatalError = null;
   let stopped = false;
 
   await withBusy(async () => {
-    log.info(`Search all started: ${queue.companies.length - queue.index} companies left`);
-    while (queue.index < queue.companies.length) {
+    log.info(
+      `Search all started: ${queue.companies.length - queue.index} companies left` +
+        (rechecks.length ? `, ${rechecks.length} to recheck` : "")
+    );
+    for (;;) {
       if (stopRequested) {
         stopped = true;
         break;
       }
-      const { name, result } = await searchQueued({ interactive: false });
+      const next = searchNextCompany({ interactive: false });
+      if (!next) {
+        // Only rechecks not yet due are left: wait for the first one.
+        const at = nextRecheckAt(rechecks);
+        if (at === null) break;
+        const first = rechecks.find((item) => item.dueAt === at);
+        if (!(await interruptibleWait(Math.max(at - Date.now(), 0), (left) => `Recheck of "${first.name}" in ${formatDuration(left * 1000)}…`))) {
+          stopped = true;
+          break;
+        }
+        continue;
+      }
+      const { name, result } = await next;
       if (result.fatal) {
         fatalError = result.error;
         break;
@@ -549,8 +762,10 @@ async function handleSearchAll() {
       else if (result.outcome === "unresolved") leftForManual.push(name);
       else if (result.count === 0) stats.empty++;
       else stats.found++;
+      if (result.invalidDomain) leftInvalidDomain.push(name);
+      if (result.unknownEmails && result.recheck) leftUnknown.push(name);
 
-      if (queue.index >= queue.companies.length) break;
+      if (queue.index >= queue.companies.length && !rechecks.length) break;
       const [min, max] = TIMING.betweenCompaniesMs;
       if (!(await interruptibleWait(randomBetween(min, max)))) {
         stopped = true;
@@ -563,7 +778,8 @@ async function handleSearchAll() {
   const took = formatDuration(Date.now() - startedAt);
   const summary =
     `${stats.found} with leads, ${stats.empty} empty, ` +
-    `${leftForManual.length} need manual choice, ${stats.failed} failed`;
+    `${leftForManual.length} need manual choice, ${leftInvalidDomain.length} with an invalid domain, ` +
+    `${leftUnknown.length} with unknown emails after the recheck, ${stats.failed} failed`;
 
   if (fatalError) {
     log.error(`Search all stopped: ${fatalError.message}`);
@@ -571,7 +787,7 @@ async function handleSearchAll() {
   } else if (stopped) {
     log.warn(`Search all stopped by user after ${took}: ${summary}`);
     status.warn(`Stopped at ${queue.index} of ${queue.companies.length}: ${summary}`);
-  } else if (leftForManual.length || stats.failed) {
+  } else if (leftForManual.length || leftInvalidDomain.length || leftUnknown.length || stats.failed) {
     log.warn(`Search all finished in ${took}: ${summary}`);
     status.warn(`Finished: ${summary}`);
   } else {
@@ -582,9 +798,19 @@ async function handleSearchAll() {
   if (leftForManual.length) {
     log.warn(
       `${leftForManual.length} companies need a manual company choice: ${leftForManual.join(", ")}. ` +
-        "Use Search in the \"Needs manual choice\" list."
+        "Use Search in the \"Needs manual analysis\" list."
     );
   }
+  if (leftInvalidDomain.length) {
+    log.warn(
+      `${leftInvalidDomain.length} companies stopped on an invalid domain: ${leftInvalidDomain.join(", ")}. ` +
+        "Use Search in the \"Needs manual analysis\" list to pick their leads by hand."
+    );
+  }
+  if (leftUnknown.length) {
+    log.warn(`${leftUnknown.length} companies still had unknown emails on their recheck: ${leftUnknown.join(", ")}`);
+  }
+  if (stopped && rechecks.length) log.info(`${rechecks.length} companies still wait for their recheck`);
   updateControls();
 }
 
@@ -731,9 +957,17 @@ async function handleLogoFolder() {
   });
 }
 
+function handleClearRechecks() {
+  if (busy || !rechecks.length) return;
+  log.info(`Recheck list cleared (${rechecks.length} companies)`);
+  rechecks = [];
+  persistRechecks();
+  updateControls();
+}
+
 function handleClearUnresolved() {
   if (busy || !unresolved.length) return;
-  log.info(`Manual choice list cleared (${unresolved.length} companies)`);
+  log.info(`Manual analysis list cleared (${unresolved.length} companies)`);
   unresolved = [];
   persistUnresolved();
   updateControls();
@@ -772,7 +1006,9 @@ export async function initSearchControls(controlElements) {
   const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
   unresolved = (Array.isArray(storedUnresolved) ? storedUnresolved : [])
     .filter((item) => typeof item?.name === "string")
-    .map(({ name, reason }) => ({ name, reason: String(reason ?? "") }));
+    .map(({ name, reason, manualLeads }) => ({ name, reason: String(reason ?? ""), manualLeads: manualLeads === true }));
+  rechecks = parseRechecks(await loadValue(STORAGE_KEYS.recheckCompanies, []));
+  recheckWasDue = dueRecheck(rechecks, Date.now()) !== null;
   const storedStats = await loadValue(STORAGE_KEYS.leadStats, null);
   leadStats = {
     pages: Math.max(Number(storedStats?.pages) || 0, 0),
@@ -780,6 +1016,7 @@ export async function initSearchControls(controlElements) {
     saved: Math.max(Number(storedStats?.saved) || 0, 0),
   };
   resultPages = clampCount(await loadValue(STORAGE_KEYS.resultPages, RESULT_PAGES.default), RESULT_PAGES);
+  recheckMinutes = clampCount(await loadValue(STORAGE_KEYS.recheckMinutes, RECHECK_MINUTES.default), RECHECK_MINUTES);
   const storedLimit = await loadValue(STORAGE_KEYS.dailyLimit, null);
   dailyLimit = {
     enabled: storedLimit?.enabled === true,
@@ -807,6 +1044,15 @@ export async function initSearchControls(controlElements) {
     saveValue(STORAGE_KEYS.resultPages, resultPages);
     log.info(`Result pages to check: ${resultPages}`);
   });
+  elements.recheckMinutesInput.min = RECHECK_MINUTES.min;
+  elements.recheckMinutesInput.max = RECHECK_MINUTES.max;
+  elements.recheckMinutesInput.value = recheckMinutes;
+  elements.recheckMinutesInput.addEventListener("change", () => {
+    recheckMinutes = clampCount(elements.recheckMinutesInput.value, RECHECK_MINUTES);
+    elements.recheckMinutesInput.value = recheckMinutes;
+    saveValue(STORAGE_KEYS.recheckMinutes, recheckMinutes);
+    log.info(`Recheck after unknown emails: ${recheckMinutes} min (companies already waiting keep their time)`);
+  });
   elements.dailyLimitInput.min = DAILY_LIMIT.min;
   elements.dailyLimitInput.max = DAILY_LIMIT.max;
   elements.dailyLimitInput.value = dailyLimit.value;
@@ -821,6 +1067,7 @@ export async function initSearchControls(controlElements) {
   elements.failedLimitInput.addEventListener("change", handleFailedLimitChange);
   // Today's count starts over at midnight while the panel stays open.
   setInterval(renderDailyLimit, 60000);
+  setInterval(tickRechecks, 1000);
   elements.searchButton.addEventListener("click", handleSearch);
   elements.searchNextButton.addEventListener("click", handleSearchNext);
   elements.searchAllButton.addEventListener("click", handleSearchAll);
@@ -834,11 +1081,13 @@ export async function initSearchControls(controlElements) {
   // Only OK closes the column mapping dialog, not Esc.
   elements.columnsDialog.addEventListener("cancel", (event) => event.preventDefault());
   elements.unresolvedClearButton.addEventListener("click", handleClearUnresolved);
+  elements.recheckClearButton.addEventListener("click", handleClearRechecks);
   onActivityChange((activity) => {
     busy = activity !== null;
     updateControls();
   });
 
   updateControls();
-  if (unresolved.length) log.warn(`${unresolved.length} companies still need a manual company choice`);
+  if (unresolved.length) log.warn(`${unresolved.length} companies are still on the manual analysis list`);
+  if (rechecks.length) log.info(`${rechecks.length} companies wait for their recheck (Search all or Search next takes them when due)`);
 }

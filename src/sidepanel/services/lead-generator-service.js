@@ -1,6 +1,7 @@
 import { LEAD_GENERATOR, TIMING } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
 import { idsForThisBrowser } from "../../utils/extension-ids.js";
+import { localLeadGeneratorIds, withLocalIds } from "../../utils/local-settings.js";
 import { FatalError } from "./tab-service.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -8,9 +9,32 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Runs the Lead generator extension's Extract, Generate and Save for the lead
 // opened on the search tab, through its companion API (messages to its panel
 // on that tab, which it's asked to open when it isn't). Lead generator is
-// reached by its known ids (LEAD_GENERATOR.ids) and answers only this
-// extension's ids: the Web Store one and the one the manifest key fixes for
-// an unpacked copy.
+// reached by its known ids (LEAD_GENERATOR.ids, after the ids of an unpacked
+// copy from local.settings.json) and answers only this extension's ids: the
+// Web Store one and the one the manifest key fixes for an unpacked copy.
+
+const LOCAL_SETTINGS_FILE = "local.settings.json";
+
+// The Lead generator ids in the developer's local.settings.json, which only
+// an unpacked copy of this extension can have (it's git-ignored and never
+// packaged); [] without the file.
+async function localIds(log) {
+  let response;
+  try {
+    response = await fetch(chrome.runtime.getURL(LOCAL_SETTINGS_FILE));
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  try {
+    const ids = localLeadGeneratorIds(await response.json());
+    if (ids.length) log.debug(`${LEAD_GENERATOR.name} ids from ${LOCAL_SETTINGS_FILE}: ${ids.join(", ")}`);
+    return ids;
+  } catch (error) {
+    log.warn(`${LOCAL_SETTINGS_FILE} isn't valid JSON, so it's ignored: ${error.message}`);
+    return [];
+  }
+}
 
 function withTimeout(promise, ms, message) {
   let timer;
@@ -88,7 +112,7 @@ function client(id, tabId) {
 // panel can't be opened there. A message to an id that isn't installed
 // fails at once.
 export async function connectLeadGenerator(tabId, log) {
-  const ids = idsForThisBrowser(chrome.runtime.id, LEAD_GENERATOR.ids);
+  const ids = idsForThisBrowser(chrome.runtime.id, withLocalIds(LEAD_GENERATOR.ids, await localIds(log)));
 
   for (const id of ids) {
     const version = await ping(id, tabId, log);

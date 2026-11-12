@@ -10,6 +10,7 @@ import { initCollapsibleCards } from "./ui/collapsible-cards.js";
 import { initCompanyExport } from "./ui/company-export.js";
 import { initLeadTitles } from "./ui/lead-titles.js";
 import { initHostAccess } from "./ui/host-access.js";
+import { versionLabel } from "../utils/version-label.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -45,7 +46,13 @@ async function refreshJobTitles() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  $("app-version").textContent = `v${chrome.runtime.getManifest().version}`;
+  const version = chrome.runtime.getManifest().version;
+  $("app-version").textContent = versionLabel(version, null);
+  // getSelf() needs no "management" permission.
+  chrome.management
+    ?.getSelf()
+    .then((info) => ($("app-version").textContent = versionLabel(version, info.installType)))
+    .catch(() => {});
 
   initStatus($("status"));
   await initCollapsibleCards();
@@ -76,6 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     companyName: $("company-name"),
     searchButton: $("search-btn"),
     resultPagesInput: $("result-pages"),
+    recheckMinutesInput: $("recheck-minutes"),
     dailyLimitToggle: $("daily-limit-toggle"),
     dailyLimitInput: $("daily-limit"),
     failedLimitToggle: $("failed-limit-toggle"),
@@ -108,6 +116,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     unresolvedCount: $("unresolved-count"),
     unresolvedList: $("unresolved-list"),
     unresolvedClearButton: $("unresolved-clear-btn"),
+    recheckBlock: $("recheck-block"),
+    recheckCount: $("recheck-count"),
+    recheckList: $("recheck-list"),
+    recheckClearButton: $("recheck-clear-btn"),
     logosRow: $("logos-row"),
     logoFolderInput: $("logo-folder"),
     logoFolderButton: $("logo-folder-btn"),
@@ -126,6 +138,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLeadTitles({
     toggle: $("lead-titles-toggle"),
     downloadButton: $("lead-titles-download-btn"),
+    clearButton: $("lead-titles-clear-btn"),
     summary: $("lead-titles-summary"),
   });
 
