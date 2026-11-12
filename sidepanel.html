@@ -99,6 +99,14 @@
         </div>
         <ul id="unresolved-list" class="unresolved__list"></ul>
       </div>
+      <div id="recheck-block" class="unresolved" hidden>
+        <div class="unresolved__head">
+          <span class="unresolved__title" title="Lead generator couldn't verify the emails yet (unknown emails): each company is searched once more when its time runs out, after the company being processed">Recheck later</span>
+          <span id="recheck-count" class="unresolved__count"></span>
+          <button type="button" id="recheck-clear-btn" class="btn btn--secondary btn--small">Clear</button>
+        </div>
+        <ul id="recheck-list" class="unresolved__list"></ul>
+      </div>
     </section>
 
     <section class="card" data-collapse="statistics">
@@ -150,6 +158,10 @@
       <label class="count-field setting" title="How many results pages (25 leads each) every search checks for leads with the job titles; the next page is read only while a column still needs leads">
         <span>Result pages to check</span>
         <input type="number" id="result-pages" inputmode="numeric" />
+      </label>
+      <label class="count-field setting" title="When Lead generator answers &quot;There are unknown emails&quot;, the company's lead selection stops and the company is searched once more after this many minutes (each company on its own clock), after the company being processed">
+        <span>Recheck after unknown emails, min</span>
+        <input type="number" id="recheck-minutes" inputmode="numeric" />
       </label>
       <div class="count-field setting" title="When on, searching stops once this many leads were found (saved) today; the count starts over at midnight">
         <label class="toggle">
