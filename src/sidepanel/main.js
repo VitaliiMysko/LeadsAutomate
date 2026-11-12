@@ -138,6 +138,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLeadTitles({
     toggle: $("lead-titles-toggle"),
     downloadButton: $("lead-titles-download-btn"),
+    clearButton: $("lead-titles-clear-btn"),
     summary: $("lead-titles-summary"),
   });
 

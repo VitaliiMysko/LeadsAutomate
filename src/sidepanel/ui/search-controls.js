@@ -21,7 +21,7 @@ import { companyIdFromPage } from "../services/company-page-service.js";
 import { FatalError, clearRateLimit } from "../services/tab-service.js";
 import { startActivity, endActivity, onActivityChange } from "../services/activity.js";
 import { ensureJobTitles, getJobPriorities, COLUMN_COLORS } from "./job-board.js";
-import { restartLeadTitles, countLeadTitlesCompany, recordLeadTitles } from "./lead-titles.js";
+import { countLeadTitlesCompany, recordLeadTitles } from "./lead-titles.js";
 import { loadValue, saveValue } from "../store/storage.js";
 import { log } from "./log.js";
 import { status } from "./status.js";
@@ -664,8 +664,6 @@ async function handleResolve(name) {
 async function searchQueued({ interactive }) {
   const company = queue.companies[queue.index];
   const { name } = company;
-  // Processing the file from its first company is a new start.
-  if (queue.index === 0) restartLeadTitles();
   setCompanyName(name);
   status.running(`Searching "${name}" (${queue.index + 1} of ${queue.companies.length})…`);
   const result = await runOne(name, { interactive, company });
