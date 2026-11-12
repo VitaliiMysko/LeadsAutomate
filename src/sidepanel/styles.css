@@ -1184,7 +1184,7 @@ input[readonly] {
   cursor: default;
 }
 
-/* ---- needs manual choice ---------------------------------------------- */
+/* ---- needs manual analysis -------------------------------------------- */
 
 .unresolved {
   display: flex;
@@ -1255,6 +1255,13 @@ input[readonly] {
 .unresolved__reason {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.unresolved__by-hand {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  gap: 4px;
 }
 
 /* ---- log --------------------------------------------------------------- */
