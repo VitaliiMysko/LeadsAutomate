@@ -63,7 +63,8 @@ async function openLead(tabId, { column, entry, lead }, log) {
 // Runs Extract, Generate and Save in Lead generator for the opened lead,
 // with a pause before each step. Returns "new" when the lead was saved now,
 // "duplicate" when an earlier search saved it ("Already saved"), "noWebsite"
-// when its company has no website (no Generate then), else null.
+// when its company has no website (no Generate then), "invalidDomain" when
+// Generate reports the company's domain as invalid, else null.
 // Throws FatalError when no more leads can be saved (its limit is reached).
 async function saveLead(leadGenerator, lead, log) {
   const pause = () => sleep(randomBetween(...TIMING.betweenLeadGeneratorStepsMs));
@@ -88,7 +89,7 @@ async function saveLead(leadGenerator, lead, log) {
   const { email, message } = await leadGenerator.generateEmails();
   if (!email) {
     log.warn(`"${lead.name}": no email (${message}), not saved`);
-    return null;
+    return message?.trim() === LEAD_GENERATOR.invalidDomainText ? "invalidDomain" : null;
   }
   log.info(`"${lead.name}": email ${email}`);
 
@@ -141,11 +142,14 @@ async function readPage(tabId, page, offset, log) {
 // counts toward its column's and its item's lead count, and toward the
 // company limit; otherwise the next matching lead is tried. Stops once the
 // company limit is reached, or once `maxFailed` leads in a row weren't
-// saved (null: no such stop), so the work goes on with the next company.
+// saved (null: no such stop), or once Lead generator reports the company's
+// domain as invalid, so the work goes on with the next company.
 // Reads up to `pages` results pages, from the one shown: the next page only
 // while a column still wants leads (and the page was full). Returns { leads,
-// pages, tried, columns, saved, wanted, limitReached, failedReached }, `columns` from countFound, `wanted` the leads the company
-// was asked for (the columns' counts, at most the company limit).
+// pages, tried, columns, saved, wanted, limitReached, failedReached,
+// invalidDomain }, `columns` from countFound, `wanted` the leads the company
+// was asked for (the columns' counts, at most the company limit),
+// `invalidDomain` true when it stopped on an invalid domain.
 // `onPageRead(leads)` is called after each results page read, with its leads,
 // `onLeadTried(saved, isNew)` after each lead tried, for the statistics
 // (`isNew` false for a lead saved by an earlier search), and
@@ -178,13 +182,15 @@ export async function selectLeads(
   };
   onProgress(leadProgress(columns, tried, companyLimit));
   let page = firstPage;
+  let invalidDomain = false;
   try {
     for (;;) {
       const leads = await readPage(tab.id, page, allLeads.length, log);
       allLeads.push(...leads);
       onPageRead(leads);
-      await tryLeads(tab.id, leadGenerator, leads, columns, companyLimit, maxFailed, tried, leadTried, log);
+      invalidDomain = await tryLeads(tab.id, leadGenerator, leads, columns, companyLimit, maxFailed, tried, leadTried, log);
 
+      if (invalidDomain) break;
       if (failedLimitReached(tried, maxFailed)) break;
       if (!wantsMoreLeads(columns, tried, companyLimit)) break;
       if (page >= lastPage) {
@@ -212,12 +218,15 @@ export async function selectLeads(
   for (const [id, column] of Object.entries(found)) {
     const names = tried.filter((item) => item.column === id && item.saved).map((item) => `"${allLeads[item.index].name}"`);
     // Columns short of their count are expected once the company limit is reached.
-    (column.found < column.wanted && !limitReached && !failedReached ? log.warn : log.info)(
+    (column.found < column.wanted && !limitReached && !failedReached && !invalidDomain ? log.warn : log.info)(
       `${column.name}: ${column.found} of ${column.wanted} leads saved${names.length ? `: ${names.join(", ")}` : ""}`
     );
   }
   if (limitReached) log.info(`Leads per company reached: ${saved} of ${companyLimit}`);
   if (failedReached) log.warn(`${maxFailed} leads in a row weren't saved: going on with the next company`);
+  if (invalidDomain) {
+    log.warn(`${LEAD_GENERATOR.name}: the company's domain is invalid: no more leads are tried for it`);
+  }
   return {
     leads: allLeads.length,
     pages: page - firstPage + 1,
@@ -227,19 +236,23 @@ export async function selectLeads(
     wanted: leadProgress(columns, tried, companyLimit).wanted,
     limitReached,
     failedReached,
+    invalidDomain,
   };
 }
 
 // Tries the leads of one results page in priority order, adding to `tried`.
-// Stops once `maxFailed` leads in a row weren't saved (failedLimitReached).
+// Stops once `maxFailed` leads in a row weren't saved (failedLimitReached),
+// or at the first lead whose company's domain Lead generator reports as
+// invalid: returns true then, else false.
 async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, maxFailed, tried, onLeadTried, log) {
   for (let pick; !failedLimitReached(tried, maxFailed) && (pick = nextPick(leads, columns, tried, companyLimit)); ) {
     const attempt = { index: pick.lead.index, column: pick.column, entryIndex: pick.entryIndex, saved: false, isNew: false };
     tried.push(attempt);
     await sleep(randomBetween(...TIMING.beforeLeadClickMs));
+    let outcome = null;
     try {
       await openLead(tabId, pick, log);
-      const outcome = await saveLead(leadGenerator, pick.lead, log);
+      outcome = await saveLead(leadGenerator, pick.lead, log);
       attempt.saved = outcome === "new" || outcome === "duplicate";
       attempt.isNew = outcome === "new";
       attempt.noWebsite = outcome === "noWebsite";
@@ -249,5 +262,7 @@ async function tryLeads(tabId, leadGenerator, leads, columns, companyLimit, maxF
     }
     onLeadTried(attempt.saved, attempt.isNew);
     if (attempt.saved) log.success(`"${pick.lead.name}" saved as a ${pick.columnName} lead for "${pick.entry}"`);
+    if (outcome === "invalidDomain") return true;
   }
+  return false;
 }

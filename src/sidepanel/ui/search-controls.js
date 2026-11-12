@@ -1,4 +1,4 @@
-import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT, FAILED_IN_A_ROW } from "../../constants/config.js";
+import { STORAGE_KEYS, TIMING, RESULT_PAGES, DAILY_LIMIT, FAILED_IN_A_ROW, LEAD_GENERATOR } from "../../constants/config.js";
 import { clampCount } from "../../utils/priority-board.js";
 import { localDateKey, foundToday, addFound, dailyLimitReached } from "../../utils/daily-limit.js";
 import { parseCompaniesFile, companiesCsvColumns, columnMappingLines, hasLogoColumn } from "../../utils/companies-file.js";
@@ -18,8 +18,9 @@ import { log } from "./log.js";
 import { status } from "./status.js";
 
 // "Name company" + Search, the companies file with Search next / Search all
-// / Stop and its progress bar, and the list of companies left for a manual
-// company choice.
+// / Stop and its progress bar, and the manual analysis list: companies left
+// for a manual company choice or, after an invalid domain, for picking their
+// leads by hand.
 //
 // Search, Search next and the list's Search wait for the user to pick the
 // company by hand when it can't be chosen automatically; Search all never
@@ -35,7 +36,11 @@ let elements = null;
 // (`hasLogos`).
 let queue = { fileName: "", companies: [], index: 0, hasLogos: false };
 let logos = {}; // company name → { hash, thumb }
-let unresolved = []; // [{ name, reason }]
+// [{ name, reason, manualLeads }]: companies left for a manual company choice
+// or, after Lead generator reported their domain as invalid, for picking
+// their leads by hand (`manualLeads`: the list's Search applies only the
+// company filter).
+let unresolved = [];
 // Leads tried and saved by lead selection, over all searches until Reset.
 let leadStats = { pages: 0, tried: 0, saved: 0 };
 // How many results pages lead selection may read per search.
@@ -243,9 +248,19 @@ function persistUnresolved() {
   saveValue(STORAGE_KEYS.unresolvedCompanies, unresolved);
 }
 
-function addUnresolved(name, reason) {
-  unresolved = [...unresolved.filter((item) => !isSameName(item.name, name)), { name, reason }];
+// `manualLeads` (the item's "Leads by hand"): when not given, an item
+// already on the list keeps its own.
+function addUnresolved(name, reason, manualLeads) {
+  const previous = unresolved.find((item) => isSameName(item.name, name));
+  const entry = { name, reason, manualLeads: manualLeads ?? previous?.manualLeads ?? false };
+  unresolved = [...unresolved.filter((item) => item !== previous), entry];
   persistUnresolved();
+}
+
+function setManualLeads(name, manualLeads) {
+  unresolved = unresolved.map((item) => (isSameName(item.name, name) ? { ...item, manualLeads } : item));
+  persistUnresolved();
+  log.info(`"${name}": ${manualLeads ? "its leads are picked by hand after Search" : "its leads are selected automatically after Search"}`);
 }
 
 function removeUnresolved(name) {
@@ -261,7 +276,7 @@ function renderUnresolved() {
   elements.unresolvedClearButton.disabled = busy;
 
   elements.unresolvedList.replaceChildren(
-    ...unresolved.map(({ name, reason }) => {
+    ...unresolved.map(({ name, reason, manualLeads }) => {
       const item = document.createElement("li");
       item.className = "unresolved__item";
 
@@ -279,9 +294,23 @@ function renderUnresolved() {
       search.type = "button";
       search.className = "btn btn--secondary btn--small";
       search.textContent = "Search";
-      search.title = "Search and pick the company by hand";
+      search.title = "Search the company, picking it by hand when it can't be chosen automatically";
       search.disabled = busy;
       search.addEventListener("click", () => handleResolve(name));
+
+      // "Leads by hand": Search only applies the company filter; the leads
+      // are then picked by hand, with no automatic lead selection.
+      const byHand = document.createElement("label");
+      byHand.className = "toggle unresolved__by-hand";
+      byHand.title = "When on, Search only applies the company filter: pick the leads by hand, no lead is selected automatically";
+      const byHandInput = document.createElement("input");
+      byHandInput.type = "checkbox";
+      byHandInput.checked = manualLeads;
+      byHandInput.disabled = busy;
+      byHandInput.addEventListener("change", () => setManualLeads(name, byHandInput.checked));
+      const byHandText = document.createElement("span");
+      byHandText.textContent = "Leads by hand";
+      byHand.append(byHandInput, byHandText);
 
       const remove = document.createElement("button");
       remove.type = "button";
@@ -292,11 +321,11 @@ function renderUnresolved() {
       remove.disabled = busy;
       remove.addEventListener("click", () => {
         removeUnresolved(name);
-        log.info(`"${name}" removed from the manual choice list`);
+        log.info(`"${name}" removed from the manual analysis list`);
         updateControls();
       });
 
-      item.append(text, search, remove);
+      item.append(text, byHand, search, remove);
       return item;
     })
   );
@@ -348,14 +377,15 @@ function setCompanyName(name) {
 }
 
 // Saves the company's leads through Lead generator by the job-title
-// priorities; returns how many were saved, or null when that failed (a
-// FatalError is passed on). With `recordTitles` (a companies-file company)
-// the job titles of the leads read are recorded (lead-titles.js).
+// priorities; returns { saved, invalidDomain } (selectLeads), or null when
+// that failed (a FatalError is passed on). With `recordTitles` (a
+// companies-file company) the job titles of the leads read are recorded
+// (lead-titles.js).
 async function runLeadSelection(name, { recordTitles = false } = {}) {
   status.running(`Selecting leads for "${name}"…`);
   if (recordTitles) countLeadTitlesCompany();
   try {
-    const { saved, tried, wanted, pages } = await selectLeads(getJobPriorities(), {
+    const { saved, tried, wanted, pages, invalidDomain } = await selectLeads(getJobPriorities(), {
       log,
       pages: resultPages,
       maxFailed: failedLimit.enabled ? failedLimit.value : null,
@@ -367,7 +397,7 @@ async function runLeadSelection(name, { recordTitles = false } = {}) {
       onProgress: (progress) => renderCompanyProgress(name, progress),
     });
     (saved >= wanted ? log.success : log.warn)(`"${name}": ${saved} of ${wanted} leads saved (${tried.length} tried, ${pages} results pages read)`);
-    return saved;
+    return { saved, invalidDomain };
   } catch (error) {
     if (error instanceof FatalError) throw error;
     log.error(`"${name}": selecting leads failed: ${error.message}`);
@@ -377,8 +407,11 @@ async function runLeadSelection(name, { recordTitles = false } = {}) {
 
 // Runs one company search, reporting to the log; status is left to the caller.
 // `company` is the companies-file entry (for its id), else found by name.
-// Returns { ok, fatal, outcome, chosen, count, reason, error }.
-async function runOne(name, { interactive, company = findCompany(name) }) {
+// With `manualLeads` only the company filter is applied: the user picks the
+// leads by hand, no lead selection runs.
+// Returns { ok, fatal, outcome, chosen, count, reason, error, selected,
+// invalidDomain, manualLeads }.
+async function runOne(name, { interactive, company = findCompany(name), manualLeads = false }) {
   // Once the daily limit is reached no new company search starts (Search
   // all stops, leaving this company as the next); a company already started
   // is always finished, even past the limit.
@@ -420,9 +453,20 @@ async function runOne(name, { interactive, company = findCompany(name) }) {
         // A results page with no leads was read all the same.
         countPage();
         log.warn(`"${name}" → "${result.chosen}": no leads list found on the page (${took})`);
+      } else if (manualLeads) {
+        result.manualLeads = true;
+        log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took}): pick the leads by hand`);
       } else {
         log.success(`"${name}" → "${result.chosen}": ${result.count} leads on the page (${took})`);
-        result.selected = await runLeadSelection(name, { recordTitles: !!company });
+        const selection = await runLeadSelection(name, { recordTitles: !!company });
+        result.selected = selection?.saved ?? null;
+        result.invalidDomain = selection?.invalidDomain === true;
+        // Lead generator can't give any of its leads an email: the company
+        // goes on the list, its leads to be picked by hand.
+        if (result.invalidDomain) {
+          addUnresolved(name, LEAD_GENERATOR.invalidDomainText, true);
+          log.warn(`"${name}": left for a manual analysis (${LEAD_GENERATOR.invalidDomainText})`);
+        }
       }
     }
     return { ok: true, fatal: false, ...result };
@@ -439,6 +483,9 @@ function finishStatus(name, result) {
   if (!result.ok) status.error(`"${name}" failed: ${result.error.message}`);
   else if (result.outcome === "unresolved") status.warn(`"${name}" needs a manual company choice (${result.reason})`);
   else if (result.count === 0) status.warn(`"${name}" → "${result.chosen}": no leads found`);
+  else if (result.manualLeads) status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, pick the leads by hand`);
+  else if (result.invalidDomain)
+    status.warn(`"${name}" → "${result.chosen}": ${result.selected} saved, then stopped (${LEAD_GENERATOR.invalidDomainText}): left for a manual analysis`);
   else if (result.selected === null) status.warn(`"${name}" → "${result.chosen}": ${result.count} leads found, selecting them failed`);
   else status.success(`"${name}" → "${result.chosen}": ${result.count} leads found, ${result.selected} saved`);
 }
@@ -466,10 +513,10 @@ function checkJobTitles() {
   return false;
 }
 
-async function runInteractive(name) {
+async function runInteractive(name, { manualLeads = false } = {}) {
   await withBusy(async () => {
     status.running(`Searching "${name}"…`);
-    finishStatus(name, await runOne(name, { interactive: true }));
+    finishStatus(name, await runOne(name, { interactive: true, manualLeads }));
   });
 }
 
@@ -480,10 +527,13 @@ async function handleSearch() {
   await runInteractive(name);
 }
 
+// The list's Search; with the item's "Leads by hand" it only applies the
+// company filter, so no job titles are needed.
 async function handleResolve(name) {
-  if (busy || !checkJobTitles()) return;
+  const manualLeads = unresolved.find((item) => isSameName(item.name, name))?.manualLeads === true;
+  if (busy || (!manualLeads && !checkJobTitles())) return;
   setCompanyName(name);
-  await runInteractive(name);
+  await runInteractive(name, { manualLeads });
 }
 
 // Shared by Search next and Search all. Doesn't advance past a company when
@@ -529,6 +579,7 @@ async function handleSearchAll() {
   batchRunning = true;
   const stats = { found: 0, empty: 0, failed: 0 };
   const leftForManual = [];
+  const leftInvalidDomain = [];
   const startedAt = Date.now();
   let fatalError = null;
   let stopped = false;
@@ -549,6 +600,7 @@ async function handleSearchAll() {
       else if (result.outcome === "unresolved") leftForManual.push(name);
       else if (result.count === 0) stats.empty++;
       else stats.found++;
+      if (result.invalidDomain) leftInvalidDomain.push(name);
 
       if (queue.index >= queue.companies.length) break;
       const [min, max] = TIMING.betweenCompaniesMs;
@@ -563,7 +615,7 @@ async function handleSearchAll() {
   const took = formatDuration(Date.now() - startedAt);
   const summary =
     `${stats.found} with leads, ${stats.empty} empty, ` +
-    `${leftForManual.length} need manual choice, ${stats.failed} failed`;
+    `${leftForManual.length} need manual choice, ${leftInvalidDomain.length} with an invalid domain, ${stats.failed} failed`;
 
   if (fatalError) {
     log.error(`Search all stopped: ${fatalError.message}`);
@@ -571,7 +623,7 @@ async function handleSearchAll() {
   } else if (stopped) {
     log.warn(`Search all stopped by user after ${took}: ${summary}`);
     status.warn(`Stopped at ${queue.index} of ${queue.companies.length}: ${summary}`);
-  } else if (leftForManual.length || stats.failed) {
+  } else if (leftForManual.length || leftInvalidDomain.length || stats.failed) {
     log.warn(`Search all finished in ${took}: ${summary}`);
     status.warn(`Finished: ${summary}`);
   } else {
@@ -582,7 +634,13 @@ async function handleSearchAll() {
   if (leftForManual.length) {
     log.warn(
       `${leftForManual.length} companies need a manual company choice: ${leftForManual.join(", ")}. ` +
-        "Use Search in the \"Needs manual choice\" list."
+        "Use Search in the \"Needs manual analysis\" list."
+    );
+  }
+  if (leftInvalidDomain.length) {
+    log.warn(
+      `${leftInvalidDomain.length} companies stopped on an invalid domain: ${leftInvalidDomain.join(", ")}. ` +
+        "Use Search in the \"Needs manual analysis\" list to pick their leads by hand."
     );
   }
   updateControls();
@@ -733,7 +791,7 @@ async function handleLogoFolder() {
 
 function handleClearUnresolved() {
   if (busy || !unresolved.length) return;
-  log.info(`Manual choice list cleared (${unresolved.length} companies)`);
+  log.info(`Manual analysis list cleared (${unresolved.length} companies)`);
   unresolved = [];
   persistUnresolved();
   updateControls();
@@ -772,7 +830,7 @@ export async function initSearchControls(controlElements) {
   const storedUnresolved = await loadValue(STORAGE_KEYS.unresolvedCompanies, []);
   unresolved = (Array.isArray(storedUnresolved) ? storedUnresolved : [])
     .filter((item) => typeof item?.name === "string")
-    .map(({ name, reason }) => ({ name, reason: String(reason ?? "") }));
+    .map(({ name, reason, manualLeads }) => ({ name, reason: String(reason ?? ""), manualLeads: manualLeads === true }));
   const storedStats = await loadValue(STORAGE_KEYS.leadStats, null);
   leadStats = {
     pages: Math.max(Number(storedStats?.pages) || 0, 0),
@@ -840,5 +898,5 @@ export async function initSearchControls(controlElements) {
   });
 
   updateControls();
-  if (unresolved.length) log.warn(`${unresolved.length} companies still need a manual company choice`);
+  if (unresolved.length) log.warn(`${unresolved.length} companies are still on the manual analysis list`);
 }

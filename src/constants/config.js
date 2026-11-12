@@ -53,6 +53,9 @@ export const LEAD_GENERATOR = {
   // The website Extract reads when the company has none: Lead generator's
   // own placeholder (its NO_WEBSITE_FOUND_TEXT), not LinkedIn's text.
   noWebsiteText: "No website found",
+  // Generate's message when its email check reports the company's domain as
+  // invalid: Lead generator's own text (email-validator.js there).
+  invalidDomainText: "Email not found. Domain is invalid",
 };
 
 // How many shorter names (name-variants.js) a search may try after the name
