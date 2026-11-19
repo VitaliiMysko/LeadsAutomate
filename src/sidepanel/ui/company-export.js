@@ -32,6 +32,13 @@ let replaceConfirmTimer = null;
 
 const describeLast = ({ last }) => `#${resultNumber(last.page, last.index)} "${last.name}" (page ${last.page})`;
 
+// "; 3 companies with 0 employees left out", or "" when none were.
+function skippedNote() {
+  const skipped = state?.skipped?.length ?? 0;
+  if (!skipped) return "";
+  return `; ${skipped} ${skipped === 1 ? "company" : "companies"} with 0 employees left out`;
+}
+
 function persist() {
   saveValue(STORAGE_KEYS.companyExport, state);
 }
@@ -48,8 +55,8 @@ function positionText() {
   const taken = state.companies.length;
   if (state.done) {
     return taken < state.target
-      ? `Done: the search had no more companies, ${taken} exported.`
-      : `Done: ${taken} companies exported.`;
+      ? `Done: the search had no more companies, ${taken} exported${skippedNote()}.`
+      : `Done: ${taken} companies exported${skippedNote()}.`;
   }
   if (currentActivity() === "export") return `Reading results page ${state.page}…`;
   const where = state.last ? `Stopped after ${describeLast(state)}` : "No company exported yet";
@@ -107,7 +114,7 @@ async function run() {
     const took = formatDuration(Date.now() - startedAt);
     if (end === "stopped") {
       update({ ...final, stopped: { reason: "stopped by you", at: Date.now() } });
-      log.warn(`Companies export stopped by you after ${took}: ${state.companies.length} of ${state.target}`);
+      log.warn(`Companies export stopped by you after ${took}: ${state.companies.length} of ${state.target}${skippedNote()}`);
       status.warn(`Export stopped: ${state.companies.length} of ${state.target} companies. Continue goes on from there`);
       return;
     }
@@ -116,9 +123,15 @@ async function run() {
     const short = state.companies.length < state.target;
     (short ? log.warn : log.success)(
       `Companies export finished in ${took}: ${state.companies.length} of ${state.target}` +
-        (short ? " (the search has no more companies)" : "")
+        (short ? " (the search has no more companies)" : "") +
+        skippedNote()
     );
-    (short ? status.warn : status.success)(`${state.companies.length} companies exported to ${fileName}`);
+    if (state.skipped.length) {
+      log.info(
+        `Not exported, 0 employees on LinkedIn: ${state.skipped.map(({ id, name }) => `${id} "${name}"`).join(" | ")}`
+      );
+    }
+    (short ? status.warn : status.success)(`${state.companies.length} companies exported to ${fileName}${skippedNote()}`);
   } catch (error) {
     update({ ...state, stopped: { reason: error.message, at: Date.now() } });
     log.error(`Companies export stopped: ${error.message}`);

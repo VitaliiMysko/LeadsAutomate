@@ -43,6 +43,9 @@ window.leadsAutomate.SELECTORS = {
   companyRow: ["ol.artdeco-list > li.artdeco-list__item", '[data-x-search-result="ACCOUNT"]'],
   companyLink: ['a[data-anonymize="company-name"]', 'a[href*="/sales/company/"]'],
   companyName: ['[data-anonymize="company-name"]'],
+  // The company's industry; the employee count ("0 employees") is shown on
+  // the same line, next to it.
+  companyIndustry: ['[data-anonymize="industry"]'],
   // The results pagination (artdeco classes and data-test attributes aren't
   // hashed): the button of page N, then the Next button. Used only when the
   // page doesn't follow the URL's `page` parameter.
