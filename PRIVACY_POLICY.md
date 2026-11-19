@@ -15,7 +15,7 @@ Only while the user runs a search or an export from the panel, the extension rea
 
 - the search's filters, from the page address;
 - the people in the search results: name, job title, company, location and time in role, to pick the people whose job titles match the user's priorities;
-- the companies in a company search's results: their LinkedIn company id and name, for the companies export;
+- the companies in a company search's results: their LinkedIn company id, name and number of employees on LinkedIn, for the companies export (companies with no employees are left out);
 - the company suggestions shown while it sets the company filter, with their logos.
 
 When the user's company list gives a company's LinkedIn page link instead of its id, the extension reads the company's id and name from that public LinkedIn page.
@@ -35,7 +35,7 @@ The extension uses the browser's local extension storage to keep, on the user's 
 - fingerprints and small thumbnails of the company logos the user selected;
 - the ids and names of companies read from their public LinkedIn pages;
 - statistics (counts of pages, leads processed and found);
-- an unfinished companies export (company ids and names);
+- an unfinished companies export (company ids and names, also of the companies left out);
 - when the user turns on "Record leads' job titles": job titles and how many leads had each, without names or other personal details.
 
 Details of individual people (names, emails) are not stored by Leads Automate. They are shown only in the panel's log while the panel is open.

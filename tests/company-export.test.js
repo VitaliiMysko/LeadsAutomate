@@ -8,6 +8,7 @@ import {
   companiesCsv,
   restoreCompanyExport,
   resultNumber,
+  employeeCountOf,
 } from "../src/utils/company-export.js";
 import { parseCompaniesCsv } from "../src/utils/companies-file.js";
 import { isCompanySearchUrl, isPeopleSearchUrl } from "../src/utils/restli-query.js";
@@ -103,6 +104,50 @@ describe("takeCompanies", () => {
     const first = takeCompanies(start, [row(0, "1")], 1).state;
     expect(takeCompanies(first, [row(0, "1")], 1).state.last).toEqual(first.last);
   });
+
+  test("leaves out companies with 0 employees, not counting them toward the target", () => {
+    const rows = [
+      { ...row(0, "1"), employees: "· 0 employees" },
+      { ...row(1, "2"), employees: "· 12 employees" },
+      { ...row(2, "3"), employees: "" },
+      { ...row(3, "4"), employees: "· 0 співробітників" },
+      { ...row(4, "5"), employees: "· 10K+ employees" },
+    ];
+    const { state, added, skipped } = takeCompanies(newCompanyExport(SEARCH, 3), rows, 1);
+    expect(added.map((company) => company.id)).toEqual(["2", "3", "5"]);
+    expect(skipped).toEqual([
+      { id: "1", name: "Company 1" },
+      { id: "4", name: "Company 4" },
+    ]);
+    expect(state.skipped).toEqual(skipped);
+    expect(state.last).toMatchObject({ id: "5", index: 4 });
+    expect(exportComplete(state)).toBe(true);
+  });
+
+  test("doesn't leave a company out twice when a page is read again", () => {
+    const rows = [{ ...row(0, "1"), employees: "0 employees" }, row(1, "")];
+    const first = takeCompanies(start, rows, 1).state;
+    const again = takeCompanies(first, [rows[0], row(1, "2")], 1);
+    expect(again.skipped).toEqual([]);
+    expect(again.state.skipped).toEqual([{ id: "1", name: "Company 1" }]);
+  });
+});
+
+describe("employeeCountOf", () => {
+  test("reads the first number, separators aside, in any language", () => {
+    expect(employeeCountOf("· 0 employees")).toBe(0);
+    expect(employeeCountOf("0 Mitarbeiter")).toBe(0);
+    expect(employeeCountOf("1,234 employees")).toBe(1234);
+    expect(employeeCountOf("1 234 salariés")).toBe(1234);
+    expect(employeeCountOf("1.234 Mitarbeiter")).toBe(1234);
+    expect(employeeCountOf("10K+ employees")).toBe(10);
+  });
+
+  test("is null without a number", () => {
+    expect(employeeCountOf("")).toBeNull();
+    expect(employeeCountOf(undefined)).toBeNull();
+    expect(employeeCountOf("· employees")).toBeNull();
+  });
 });
 
 describe("resultNumber", () => {
@@ -141,5 +186,11 @@ describe("restoreCompanyExport", () => {
   test("drops malformed companies", () => {
     const restored = restoreCompanyExport({ searchUrl: SEARCH, companies: [{ id: "1", name: "A" }, { name: "B" }, null] });
     expect(restored.companies).toEqual([{ id: "1", name: "A" }]);
+  });
+
+  test("restores the skipped companies; a state saved before them has none", () => {
+    const skipped = [{ id: "9", name: "Empty Co" }];
+    expect(restoreCompanyExport({ searchUrl: SEARCH, skipped: [...skipped, { name: "x" }] }).skipped).toEqual(skipped);
+    expect(restoreCompanyExport({ searchUrl: SEARCH }).skipped).toEqual([]);
   });
 });

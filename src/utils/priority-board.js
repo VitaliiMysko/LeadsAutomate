@@ -1,7 +1,7 @@
 import { normalizeName } from "./text-utils.js";
 
 // Pure operations on the job-title priority board:
-// { columns: [{ id, name, count, entries: [entry, ...] }, ...], manual: [title, ...] }.
+// { columns: [{ id, name, count, entries: [entry, ...] }, ...], companyLimit }.
 // The columns are the user's, in priority order (the first one is tried
 // first); `count` is how many leads a column takes per search. A column
 // entry is either a single title, { title, count }, or a group of titles
@@ -9,9 +9,8 @@ import { normalizeName } from "./text-utils.js";
 // An entry's `count` is how many leads to take from that title, or from the
 // group's titles together. Each column's entries are ordered from the
 // highest priority (index 0) to the lowest; their counts may add up to more
-// than the column's own count. `manual` lists the titles the user typed in
-// rather than took from the Sales Navigator filter. Columns are addressed by
-// their `id`. `companyLimit`, { enabled, value }, caps the leads found for one
+// than the column's own count. A title is the same whether it was taken from
+// the Sales Navigator filter or typed in. Columns are addressed by their `id`. `companyLimit`, { enabled, value }, caps the leads found for one
 // company across all the columns, when enabled.
 
 export const POOL = "pool";
@@ -30,7 +29,6 @@ const LEGACY_COLUMNS = [
 export function createEmptyBoard(limits = DEFAULT_LIMITS, companyLimits = DEFAULT_COMPANY_LIMITS) {
   return {
     columns: LEGACY_COLUMNS.map(({ name }, index) => ({ id: `c${index + 1}`, name, count: limits.default, entries: [] })),
-    manual: [],
     companyLimit: { enabled: false, value: companyLimits.default },
   };
 }
@@ -86,7 +84,6 @@ function cloneBoard(board) {
       ...column,
       entries: column.entries.map((entry) => (isGroup(entry) ? { ...entry, titles: [...entry.titles] } : { ...entry })),
     })),
-    manual: [...board.manual],
     companyLimit: { ...board.companyLimit },
   };
 }
@@ -111,13 +108,12 @@ function rawColumns(board, limits) {
 // Accepts the stored board, including the older formats: fixed Management
 // and Technical columns (their lead counts in `leadsCount`), and columns
 // that were plain lists of titles. Duplicate titles, empty groups and
-// unknown keys are dropped; counts are clamped to `limits`; a column
+// unknown keys (also the older formats' `manual` marks) are dropped; counts are clamped to `limits`; a column
 // without a name is named by its position. A board without columns gets the
 // new board's ones; one without a company limit has it off.
 export function sanitizeBoard(board, limits = DEFAULT_LIMITS, companyLimits = DEFAULT_COMPANY_LIMITS) {
   const clean = {
     columns: [],
-    manual: [],
     companyLimit: {
       enabled: board?.companyLimit?.enabled === true,
       value: clampCount(board?.companyLimit?.value ?? companyLimits.default, companyLimits),
@@ -169,9 +165,6 @@ export function sanitizeBoard(board, limits = DEFAULT_LIMITS, companyLimits = DE
   if (!clean.columns.length) clean.columns = createEmptyBoard(limits).columns;
   for (const group of pendingGroups) group.id = nextGroupId(clean);
   for (const column of pendingColumns) column.id = nextColumnId(clean);
-
-  const manual = Array.isArray(board?.manual) ? board.manual : [];
-  clean.manual = [...seen].filter((title) => manual.includes(title));
   return clean;
 }
 
@@ -187,10 +180,6 @@ export function findGroup(board, groupId) {
     if (index !== -1) return { column: column.id, index, group: column.entries[index] };
   }
   return null;
-}
-
-export function isManualTitle(board, title) {
-  return board.manual.includes(title);
 }
 
 // Job titles from the current search filter not yet placed in a column.
@@ -229,14 +218,11 @@ function detachTitle(board, title) {
 // `index` (end of the column when omitted), keeping its count if it was a
 // single entry already. `index` counts the column's entries without the
 // moved title, as the drop position on screen does. Returns a new board.
-// A manual title sent back to the pool is dropped, since the filter doesn't
-// hold it.
+// Sent to the pool, the title leaves the board; it shows in the Job list
+// only while the filter holds it.
 export function moveTitle(board, title, target, index, limits = DEFAULT_LIMITS) {
   const { next, count, removedGroup } = detachTitle(board, title);
-  if (target === POOL) {
-    next.manual = next.manual.filter((item) => item !== title);
-    return next;
-  }
+  if (target === POOL) return next;
   const { entries } = requireColumn(next, target);
 
   let at = index;
@@ -255,17 +241,14 @@ export function moveTitleToGroup(board, title, groupId, index) {
   return next;
 }
 
-// Moves a whole group to `target` at `index`. Sent to the pool, its titles go
-// back to the Job list (manual ones are dropped).
+// Moves a whole group to `target` at `index`. Sent to the pool, its titles
+// leave the board (the filter's ones go back to the Job list).
 export function moveGroup(board, groupId, target, index) {
   const found = findGroup(board, groupId);
   if (!found) return board;
   const next = cloneBoard(board);
   const [group] = getColumn(next, found.column).entries.splice(found.index, 1);
-  if (target === POOL) {
-    next.manual = next.manual.filter((title) => !group.titles.includes(title));
-    return next;
-  }
+  if (target === POOL) return next;
   const { entries } = requireColumn(next, target);
   entries.splice(clampIndex(index, entries.length), 0, group);
   return next;
@@ -328,14 +311,12 @@ export function addColumn(board, name, limits = DEFAULT_LIMITS) {
   return { board: next, id };
 }
 
-// Removes a column; its titles go back to the Job list (manual ones are
-// dropped). The last column is kept: the board always has one.
+// Removes a column; its titles leave the board (the filter's ones go back to
+// the Job list). The last column is kept: the board always has one.
 export function removeColumn(board, columnId) {
   if (!getColumn(board, columnId) || board.columns.length < 2) return board;
-  const titles = columnTitles(board, columnId);
   const next = cloneBoard(board);
   next.columns = next.columns.filter((column) => column.id !== columnId);
-  next.manual = next.manual.filter((title) => !titles.includes(title));
   return next;
 }
 
@@ -404,9 +385,7 @@ export function addTitle(board, rawTitle, columnId, filterTitles = [], limits = 
     return { board: moveTitle(board, fromFilter, columnId, undefined, limits), title: fromFilter, outcome: "placed" };
   }
 
-  const next = moveTitle(board, typed, columnId, undefined, limits);
-  next.manual.push(typed);
-  return { board: next, title: typed, outcome: "added" };
+  return { board: moveTitle(board, typed, columnId, undefined, limits), title: typed, outcome: "added" };
 }
 
 // What the search should look for in a column, by priority:
@@ -432,19 +411,19 @@ export function hasJobTitles(board) {
 }
 
 // --- board file ------------------------------------------------------------
-// The columns (names, lead counts, titles, groups, counts), the manual marks
-// and the company limit, as saved to a JSON file and loaded back. Version 1
-// files hold the fixed Management and Technical columns.
+// The columns (names, lead counts, titles, groups, counts) and the company
+// limit, as saved to a JSON file and loaded back. Older files load too:
+// version 1 holds the fixed Management and Technical columns, and versions
+// 1 and 2 also hold `manual` marks, which are ignored.
 
 export const BOARD_FILE_FORMAT = "leads-automate-job-titles";
-export const BOARD_FILE_VERSION = 2;
+export const BOARD_FILE_VERSION = 3;
 
 export function boardToFile(board) {
   return {
     format: BOARD_FILE_FORMAT,
     version: BOARD_FILE_VERSION,
     columns: board.columns,
-    manual: board.manual,
     companyLimit: board.companyLimit,
   };
 }

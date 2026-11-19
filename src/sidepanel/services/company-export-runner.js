@@ -1,5 +1,5 @@
 import { isCompanySearchUrl, pageOf, urlWithPage } from "../../utils/restli-query.js";
-import { searchKeyOf, takeCompanies, exportComplete, resultNumber } from "../../utils/company-export.js";
+import { searchKeyOf, takeCompanies, exportComplete, resultNumber, employeeCountOf } from "../../utils/company-export.js";
 import { TIMING, COMPANIES_PER_PAGE, RESULT_PAGES } from "../../constants/config.js";
 import { randomBetween } from "../../utils/text-utils.js";
 import { getActiveTab, sendToContent, FatalError, RateLimitError } from "./tab-service.js";
@@ -74,14 +74,19 @@ async function readPage(tabId, page, log) {
 // Takes the companies of one page into the export, logging them.
 function take(state, rows, page, log) {
   const result = takeCompanies(state, rows, page);
-  const { added, state: next } = result;
+  const { added, skipped, state: next } = result;
+  if (skipped.length) {
+    log.info(`Page ${page}: ${skipped.length} companies with 0 employees left out: ${skipped.map(({ name }) => `"${name}"`).join(", ")}`);
+  }
+  const unknown = rows.filter((row) => row.href && employeeCountOf(row.employees) === null).length;
+  if (unknown) log.debug(`Page ${page}: the employee count of ${unknown} companies couldn't be read; they're exported`);
   if (added.length) {
     log.debug(`Companies from page ${page}: ${added.map(({ id, name }) => `${id} "${name}"`).join(" | ")}`);
     log.info(
       `Page ${page}: ${added.length} companies taken, up to #${resultNumber(page, next.last.index)} ` +
         `(${next.companies.length} of ${state.target})`
     );
-  } else {
+  } else if (!skipped.length) {
     log.info(`Page ${page}: no new companies (${rows.length} on the page)`);
   }
   return result;
@@ -126,6 +131,12 @@ export async function exportCompanies(initial, { log, shouldStop = () => false, 
       log.info(`Page ${page} is the last results page Sales Navigator shows`);
       return { state, end: "last-page" };
     }
+    // A full last page: only the pagination tells there's no next one.
+    const { available } = await sendToContent(tab.id, "hasResultsPage", { page: page + 1 });
+    if (available === false) {
+      log.info(`Page ${page} is the last results page (the pagination has no page ${page + 1})`);
+      return { state, end: "last-page" };
+    }
     // The page is done: an export continued later starts on the next one.
     state = { ...state, page: page + 1 };
     onUpdate(state);
@@ -133,6 +144,12 @@ export async function exportCompanies(initial, { log, shouldStop = () => false, 
 
     const url = (await chrome.tabs.get(tab.id)).url;
     if (!(await goToPage(tab.id, url, page + 1, rows[0]?.href ?? "", log, COMPANY_RESULTS))) {
+      // The pagination may have rendered only by now (scrolled to by the step).
+      const { available: after } = await sendToContent(tab.id, "hasResultsPage", { page: page + 1 });
+      if (after === false) {
+        log.info(`Page ${page} is the last results page (the pagination has no page ${page + 1})`);
+        return { state, end: "last-page" };
+      }
       throw new Error(`couldn't go to results page ${page + 1}`);
     }
   }
