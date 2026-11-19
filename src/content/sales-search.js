@@ -429,12 +429,32 @@ if (!window.leadsAutomate.salesSearchInit) {
     return found?.closest("a") || found;
   }
 
+  // The text after the company's industry, on its line: the employee count
+  // ("· 0 employees"). Found from the industry element, not by its words, so
+  // it works in every interface language. Empty when the row shows no
+  // industry.
+  function companyEmployeesText(row) {
+    const industry = queryFirst(row, SELECTORS.companyIndustry);
+    if (!industry) return "";
+    const industryText = (industry.innerText || "").replace(/\s+/g, " ").trim();
+    // The industry's nearest container holding more than the industry.
+    let line = industry.parentElement;
+    for (let level = 0; line && line !== row && level < 3; level++) {
+      const text = (line.innerText || "").replace(/\s+/g, " ").trim();
+      const at = industryText ? text.indexOf(industryText) : -1;
+      if (at !== -1 && text !== industryText) return text.slice(at + industryText.length).trim();
+      line = line.parentElement;
+    }
+    return "";
+  }
+
   function describeCompany(row, index) {
     const link = companyLink(row);
     return {
       index,
       name: rowText(row, SELECTORS.companyName) || (link?.innerText || "").replace(/\s+/g, " ").trim(),
       href: link?.href || "",
+      employees: companyEmployeesText(row),
     };
   }
 
@@ -488,6 +508,16 @@ if (!window.leadsAutomate.salesSearchInit) {
     return { clicked: true };
   }
 
+  // Whether the pagination offers results page `page` (the one after the
+  // page shown): true when it has that page's button or an enabled Next
+  // button, false when its Next button is disabled, null when there's no
+  // pagination to tell (a single page of results, or not rendered yet).
+  async function hasResultsPage({ page }) {
+    if (queryFirst(document, SELECTORS.paginationPage(page))) return { available: true };
+    const next = queryFirst(document, SELECTORS.paginationNext);
+    return { available: next ? !next.disabled : null };
+  }
+
   // Whether the details of the lead named `name` are shown outside the
   // results list.
   async function leadPanelState({ name }) {
@@ -510,6 +540,7 @@ if (!window.leadsAutomate.salesSearchInit) {
     readCompanies,
     companyResultsMarker,
     clickResultsPage,
+    hasResultsPage,
     isFilterReady,
     typeFilterValue,
     selectSuggestion,

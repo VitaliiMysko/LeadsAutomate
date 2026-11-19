@@ -8,8 +8,11 @@ import { COMPANIES_PER_PAGE } from "../constants/config.js";
 // so an export cut short (an error, LinkedIn's request limit, Stop)
 // continues where it ended:
 //   { searchUrl, searchKey, target, page, companies: [{ id, name }],
-//     last: { id, name, page, index } | null, done, stopped: { reason, at } | null }
+//     skipped: [{ id, name }], last: { id, name, page, index } | null, done,
+//     stopped: { reason, at } | null }
 // `page` is the results page to read next, `last` the last company taken.
+// `skipped` holds the companies left out for having no employees on
+// LinkedIn; they don't count toward the target.
 
 export const COMPANY_EXPORT_COLUMNS = ["company_id", "company_name"];
 
@@ -33,21 +36,36 @@ export function newCompanyExport(url, target) {
     target,
     page: pageOf(url),
     companies: [],
+    skipped: [],
     last: null,
     done: false,
     stopped: null,
   };
 }
 
-// The companies of one results page ({ index, name, href } in page order,
-// `href` the link to the company's Sales Navigator page, empty when the row
-// didn't render) taken into the export: in order, skipping companies already
-// in it, up to its target. Stops at the first row without a company id, so
-// `last` is always the last company read in order; `unread` is that row's
-// index, else null. Returns { state, added, unread }.
+// The number of employees in a result row's employee count text (the text
+// next to the industry, "0 employees", "1,234 employees", "10K+ employees"
+// in any language): its first number, separators aside, or null when the
+// text holds none. Only 0 matters to the export, so "10K+" reads as 10.
+export function employeeCountOf(text) {
+  const match = String(text ?? "").match(/\d+(?:[.,   ]\d{3})*/);
+  return match ? Number.parseInt(match[0].replace(/\D/g, ""), 10) : null;
+}
+
+// The companies of one results page ({ index, name, href, employees } in
+// page order, `href` the link to the company's Sales Navigator page, empty
+// when the row didn't render; `employees` the employee count text) taken
+// into the export: in order, skipping companies already in it, up to its
+// target. A company with 0 employees goes to `skipped` instead; one whose
+// count can't be read is taken. Stops at the first row without a company
+// id, so `last` is always the last company read in order; `unread` is that
+// row's index, else null. Returns { state, added, skipped, unread },
+// `skipped` the companies left out from this page.
 export function takeCompanies(state, rows, page) {
-  const seen = new Set(state.companies.map((company) => company.id));
+  const previouslySkipped = state.skipped ?? [];
+  const seen = new Set([...state.companies, ...previouslySkipped].map((company) => company.id));
   const added = [];
+  const skipped = [];
   let last = state.last;
   let unread = null;
   for (const row of rows) {
@@ -60,10 +78,19 @@ export function takeCompanies(state, rows, page) {
     if (seen.has(id)) continue;
     seen.add(id);
     const name = String(row.name ?? "").replace(/\s+/g, " ").trim();
+    if (employeeCountOf(row.employees) === 0) {
+      skipped.push({ id, name });
+      continue;
+    }
     added.push({ id, name });
     last = { id, name, page, index: row.index };
   }
-  return { state: { ...state, companies: [...state.companies, ...added], last }, added, unread };
+  return {
+    state: { ...state, companies: [...state.companies, ...added], skipped: [...previouslySkipped, ...skipped], last },
+    added,
+    skipped,
+    unread,
+  };
 }
 
 // The position of row `index` of results page `page` in the whole search
@@ -83,9 +110,11 @@ export function companiesCsv(companies) {
 // Keeps only a stored state of the expected shape, else null.
 export function restoreCompanyExport(stored) {
   if (!stored || typeof stored !== "object" || typeof stored.searchUrl !== "string") return null;
-  const companies = (Array.isArray(stored.companies) ? stored.companies : [])
-    .filter((company) => typeof company?.id === "string" && company.id)
-    .map(({ id, name }) => ({ id, name: String(name ?? "") }));
+  const companiesOf = (list) =>
+    (Array.isArray(list) ? list : [])
+      .filter((company) => typeof company?.id === "string" && company.id)
+      .map(({ id, name }) => ({ id, name: String(name ?? "") }));
+  const companies = companiesOf(stored.companies);
   const last = stored.last && typeof stored.last.id === "string" ? stored.last : null;
   return {
     searchUrl: stored.searchUrl,
@@ -93,6 +122,7 @@ export function restoreCompanyExport(stored) {
     target: Math.max(Number(stored.target) || 1, 1),
     page: Math.max(Number(stored.page) || 1, 1),
     companies,
+    skipped: companiesOf(stored.skipped),
     last,
     done: stored.done === true,
     stopped: stored.stopped && typeof stored.stopped.reason === "string" ? stored.stopped : null,
