@@ -607,29 +607,14 @@ h2 {
   padding: 2px 4px 2px 6px;
 }
 
-.rank-item--stale .rank-item__text {
-  color: var(--text-muted);
-  text-decoration: line-through dotted;
-}
-
-.rank-item--manual {
+/* Not in the Sales Navigator filter with this exact spelling: no column color. */
+.rank-item--unmatched {
   background: transparent;
   border: 1px dashed var(--col-color);
 }
 
-.rank-item__badge {
-  flex: none;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--col-soft);
-  color: var(--col-color);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 16px;
-}
-
-.rank-item:hover .rank-item__badge {
-  display: none;
+.rank-item--unmatched .rank-item__text {
+  color: var(--text-muted);
 }
 
 .add-title {
