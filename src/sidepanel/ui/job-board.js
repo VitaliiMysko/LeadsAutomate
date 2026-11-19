@@ -19,7 +19,6 @@ import {
   setCompanyLimit,
   getCompanyLimit,
   addTitle,
-  isManualTitle,
   isGroup,
   columnTitles,
   getBoardPlan,
@@ -127,15 +126,18 @@ function createCountInput(column, index, label) {
   return input;
 }
 
-// Title text with the manual badge or the stale mark; shared by single
-// titles and the titles inside a group.
+// False only when the filter is known and doesn't hold `title` exactly.
+function isInFilter(title) {
+  return !filterTitlesKnown || filterTitles.includes(title);
+}
+
+// Title text; a title the Sales Navigator filter doesn't hold exactly (same
+// spelling) loses the column's color. Shared by single titles and the titles
+// inside a group. Returns whether the filter holds it.
 function decorateTitle(item, title) {
-  const isManual = isManualTitle(board, title);
-  if (isManual) {
-    item.classList.add("rank-item--manual");
-    item.title = "Added manually";
-  } else if (filterTitlesKnown && !filterTitles.includes(title)) {
-    item.classList.add("rank-item--stale");
+  const inFilter = isInFilter(title);
+  if (!inFilter) {
+    item.classList.add("rank-item--unmatched");
     item.title = "Not in the current Sales Navigator \"Current job title\" filter";
   }
 
@@ -143,13 +145,7 @@ function decorateTitle(item, title) {
   text.className = "rank-item__text";
   text.textContent = title;
   item.append(text);
-  if (isManual) {
-    const badge = document.createElement("span");
-    badge.className = "rank-item__badge";
-    badge.textContent = "manual";
-    item.append(badge);
-  }
-  return isManual;
+  return inFilter;
 }
 
 function createSingleItem(column, entry, index) {
@@ -160,7 +156,7 @@ function createSingleItem(column, entry, index) {
   item.dataset.title = title;
 
   item.append(createRank(index));
-  const isManual = decorateTitle(item, title);
+  const inFilter = decorateTitle(item, title);
   item.append(
     createCountInput(column, index, `Leads to take with the title "${title}"`),
     createActions(
@@ -172,7 +168,7 @@ function createSingleItem(column, entry, index) {
         index === entriesOf(column).length - 1
       ),
       createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
-      createIconButton(isManual ? "Remove" : "Back to Job list", "×", () => applyBoard(moveTitle(board, title, POOL)))
+      createIconButton(inFilter ? "Back to Job list" : "Remove", "×", () => applyBoard(moveTitle(board, title, POOL)))
     )
   );
   return item;
@@ -183,7 +179,7 @@ function createGroupTitle(column, group, title, position) {
   item.className = "rank-item rank-item--sub";
   item.draggable = true;
   item.dataset.title = title;
-  decorateTitle(item, title);
+  const inFilter = decorateTitle(item, title);
 
   const groupIndex = entriesOf(column).indexOf(group);
   item.append(
@@ -195,7 +191,8 @@ function createGroupTitle(column, group, title, position) {
         () => applyBoard(moveTitleToGroup(board, title, group.id, position + 1)),
         position === group.titles.length - 1
       ),
-      createIconButton("Take out of the group", "×", () => applyBoard(moveTitle(board, title, column, groupIndex + 1)))
+      createIconButton("Take out of the group", "⤵", () => applyBoard(moveTitle(board, title, column, groupIndex + 1))),
+      createIconButton(inFilter ? "Remove (back to Job list)" : "Remove", "×", () => applyBoard(moveTitle(board, title, POOL)))
     )
   );
   return item;
@@ -248,7 +245,7 @@ function createGroupItem(column, group, index) {
   return item;
 }
 
-// --- manual entry ----------------------------------------------------------
+// --- typed entry -----------------------------------------------------------
 
 const ADD_OUTCOME_MESSAGES = {
   added: (title, column) => `Added "${title}" to ${column}`,

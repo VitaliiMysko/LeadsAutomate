@@ -20,7 +20,6 @@ import {
   findColumn,
   findGroup,
   columnTitles,
-  isManualTitle,
   addTitle,
   clampCount,
   getColumnPlan,
@@ -40,7 +39,6 @@ const off = { enabled: false, value: 5 };
 // Management (c1): CEO, CTO (2 leads); Technical (c2): Architect
 const board = {
   columns: [column("c1", "Management", [single("CEO"), single("CTO", 2)]), column("c2", "Technical", [single("Architect")])],
-  manual: [],
   companyLimit: off,
 };
 
@@ -50,7 +48,6 @@ const grouped = {
     column("c1", "Management", [single("CEO"), { id: "g1", name: "Founders", titles: ["Founder", "Gründer"], count: 3 }, single("CTO")]),
     column("c2", "Technical", [{ id: "g2", name: "", titles: ["QA"], count: 1 }]),
   ],
-  manual: ["Gründer"],
   companyLimit: off,
 };
 
@@ -58,7 +55,6 @@ describe("createEmptyBoard", () => {
   test("has empty Management and Technical columns", () => {
     expect(createEmptyBoard()).toEqual({
       columns: [column("c1", "Management", []), column("c2", "Technical", [])],
-      manual: [],
       companyLimit: off,
     });
   });
@@ -93,7 +89,6 @@ describe("moveTitle", () => {
     const next = moveTitle(board, "CTO", "c2", 0);
     expect(next).toEqual({
       columns: [column("c1", "Management", [single("CEO")]), column("c2", "Technical", [single("CTO", 2), single("Architect")])],
-      manual: [],
       companyLimit: off,
     });
   });
@@ -165,10 +160,9 @@ describe("groups", () => {
     expect(entriesOf(next, "c2")[0]).toEqual(entriesOf(grouped, "c1")[1]);
   });
 
-  test("moveGroup to the pool returns its titles and drops the manual ones", () => {
+  test("moveGroup to the pool returns its titles", () => {
     const next = moveGroup(grouped, "g1", POOL);
     expect(columnTitles(next, "c1")).toEqual(["CEO", "CTO"]);
-    expect(next.manual).toEqual([]);
     expect(getPool(next, ["Founder", "CEO"])).toEqual(["Founder"]);
   });
 
@@ -203,10 +197,9 @@ describe("columns", () => {
     expect(addColumn(removeColumn(three, "c1"), "Ops").id).toBe("c4");
   });
 
-  test("removeColumn sends the column's titles back to the pool and drops its manual ones", () => {
+  test("removeColumn sends the column's titles back to the pool", () => {
     const next = removeColumn(grouped, "c1");
     expect(names(next)).toEqual(["Technical"]);
-    expect(next.manual).toEqual([]);
     expect(getPool(next, ["CEO", "Founder", "QA"])).toEqual(["CEO", "Founder"]);
   });
 
@@ -246,10 +239,9 @@ describe("columns", () => {
 });
 
 describe("sanitizeBoard", () => {
-  test("converts the oldest format (plain title lists) to single titles with the default count", () => {
+  test("converts the oldest format (plain title lists) to single titles with the default count, dropping manual marks", () => {
     expect(sanitizeBoard({ management: ["CEO", "CTO"], technical: ["QA"], manual: ["QA"] })).toEqual({
       columns: [column("c1", "Management", [single("CEO"), single("CTO")]), column("c2", "Technical", [single("QA")])],
-      manual: ["QA"],
       companyLimit: off,
     });
   });
@@ -258,7 +250,6 @@ describe("sanitizeBoard", () => {
     const old = { management: [single("CEO", 3)], technical: [], manual: [], leadsCount: { management: 2, technical: 0 } };
     expect(sanitizeBoard(old)).toEqual({
       columns: [column("c1", "Management", [single("CEO", 3)], 2), column("c2", "Technical", [], 0)],
-      manual: [],
       companyLimit: off,
     });
   });
@@ -274,7 +265,6 @@ describe("sanitizeBoard", () => {
     };
     expect(sanitizeBoard(raw)).toEqual({
       columns: [column("c1", "Management", [single("CEO")]), column("c2", "Technical", [single("QA", 4)])],
-      manual: [],
       companyLimit: off,
     });
     expect(sanitizeBoard(null)).toEqual(createEmptyBoard());
@@ -291,7 +281,6 @@ describe("sanitizeBoard", () => {
     };
     expect(sanitizeBoard(raw)).toEqual({
       columns: [column("c2", "Sales", [], 9), column("c3", "Column 2", [], 3), column("c4", "Column 3", [single("CEO")])],
-      manual: [],
       companyLimit: off,
     });
   });
@@ -311,36 +300,36 @@ describe("sanitizeBoard", () => {
           { id: "g3", name: "", titles: ["Tester"], count: 1 },
         ]),
       ],
-      manual: [],
       companyLimit: off,
     });
   });
 
-  test("keeps only manual titles that are still in a column", () => {
-    expect(
-      sanitizeBoard({ management: ["CEO"], technical: [{ id: "g1", titles: ["Hand-made"], count: 1 }], manual: ["Hand-made", "Gone", 7] })
-        .manual
-    ).toEqual(["Hand-made"]);
+  test("drops the older formats' manual marks, keeping their titles", () => {
+    const clean = sanitizeBoard({
+      columns: [column("c1", "Management", [single("Hand-made")])],
+      manual: ["Hand-made", "Gone", 7],
+    });
+    expect(clean).not.toHaveProperty("manual");
+    expect(columnTitles(clean, "c1")).toEqual(["Hand-made"]);
   });
 });
 
 describe("addTitle", () => {
   const filterTitles = ["Chief Technology Officer", "Developer"];
 
-  test("adds a new typed title at the end of the column and marks it manual", () => {
+  test("adds a new typed title at the end of the column", () => {
     const { board: next, title, outcome } = addTitle(board, "  Head   of  QA ", "c2", filterTitles);
     expect(outcome).toBe("added");
     expect(title).toBe("Head of QA");
     expect(entriesOf(next, "c2")).toEqual([single("Architect"), single("Head of QA")]);
-    expect(isManualTitle(next, "Head of QA")).toBe(true);
+    expect(next).not.toHaveProperty("manual");
   });
 
-  test("takes a filter title with the filter's spelling, not as manual", () => {
+  test("takes a filter title with the filter's spelling", () => {
     const { board: next, title, outcome } = addTitle(board, "chief technology officer", "c1", filterTitles);
     expect(outcome).toBe("placed");
     expect(title).toBe("Chief Technology Officer");
     expect(columnTitles(next, "c1")).toEqual(["CEO", "CTO", "Chief Technology Officer"]);
-    expect(next.manual).toEqual([]);
   });
 
   test("moves a title already in another column, also out of a group", () => {
@@ -361,15 +350,13 @@ describe("addTitle", () => {
     expect(addTitle(board, "   ", "c1").outcome).toBe("empty");
   });
 
-  test("a manual title moved between columns stays manual; sent to the pool it's dropped", () => {
-    const { board: withManual } = addTitle(board, "Head of QA", "c2");
-    const moved = moveTitle(withManual, "Head of QA", "c1", 0);
+  test("a typed title moves between columns; sent to the pool it leaves the board", () => {
+    const { board: withTyped } = addTitle(board, "Head of QA", "c2");
+    const moved = moveTitle(withTyped, "Head of QA", "c1", 0);
     expect(entriesOf(moved, "c1")[0]).toEqual(single("Head of QA"));
-    expect(isManualTitle(moved, "Head of QA")).toBe(true);
 
     const removed = moveTitle(moved, "Head of QA", POOL);
     expect(findColumn(removed, "Head of QA")).toBeNull();
-    expect(removed.manual).toEqual([]);
     expect(getPool(removed, filterTitles)).not.toContain("Head of QA");
   });
 
@@ -483,7 +470,29 @@ describe("boardToFile / boardFromFile", () => {
         column("c1", "Management", [single("CEO"), { id: "g1", name: "", titles: ["Founder"], count: 9 }], 9),
         column("c2", "Technical", []),
       ],
-      manual: ["Founder"],
+      companyLimit: off,
+    });
+  });
+
+  test("loads a version 2 file (with manual marks) and drops the marks", () => {
+    const file = {
+      format: "leads-automate-job-titles",
+      version: 2,
+      columns: [column("c1", "Sales", [single("CEO", 2), single("Head of QA")], 3)],
+      manual: ["Head of QA"],
+      companyLimit: { enabled: true, value: 6 },
+    };
+    expect(boardFromFile(JSON.stringify(file), limits)).toEqual({
+      columns: [column("c1", "Sales", [single("CEO", 2), single("Head of QA")], 3)],
+      companyLimit: { enabled: true, value: 6 },
+    });
+  });
+
+  test("saves version 3 without manual marks", () => {
+    expect(boardToFile(grouped)).toEqual({
+      format: "leads-automate-job-titles",
+      version: 3,
+      columns: grouped.columns,
       companyLimit: off,
     });
   });
@@ -491,10 +500,10 @@ describe("boardToFile / boardFromFile", () => {
   test("rejects other files", () => {
     expect(() => boardFromFile("CEO, CTO")).toThrow("not a JSON file");
     expect(() => boardFromFile(JSON.stringify({ auto: [], manual: [] }))).toThrow("not a job titles file");
-    expect(() => boardFromFile(JSON.stringify({ format: "leads-automate-job-titles", version: 3 }))).toThrow(
-      "unsupported file version 3"
+    expect(() => boardFromFile(JSON.stringify({ format: "leads-automate-job-titles", version: 4 }))).toThrow(
+      "unsupported file version 4"
     );
-    expect(() => boardFromFile(JSON.stringify({ format: "leads-automate-job-titles", version: 2 }))).toThrow(
+    expect(() => boardFromFile(JSON.stringify({ format: "leads-automate-job-titles", version: 3 }))).toThrow(
       "the file has no columns"
     );
   });
