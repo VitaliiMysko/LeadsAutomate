@@ -591,6 +591,18 @@ h2 {
   background: var(--surface);
 }
 
+/* A title being renamed (✎ or a double-click on it). */
+.rank-list input.rank-item__edit {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
+.rank-item--editing > .rank-item__actions {
+  display: none;
+}
+
 /* Also the drop zone for titles joining the group. */
 .rank-group__list {
   display: flex;
