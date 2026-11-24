@@ -300,6 +300,39 @@ export function renameGroup(board, groupId, name) {
   return next;
 }
 
+// Renames `oldTitle` where it is on the board (a single entry or a group's
+// title), keeping its place and count. Another title on the board with the
+// same name (compared case- and whitespace-insensitively) refuses the new
+// name; a name the filter holds takes the filter's spelling, as addTitle
+// does. A title of the filter renamed leaves the board, so it shows in the
+// Job list again. Returns { board, title, outcome }, outcome being
+// "renamed" | "unchanged" | "exists" (`title` is the other one) | "empty" |
+// "missing" (`oldTitle` isn't on the board).
+export function renameTitle(board, oldTitle, rawTitle, filterTitles = []) {
+  const typed = cleanText(rawTitle);
+  if (!findColumn(board, oldTitle)) return { board, title: oldTitle, outcome: "missing" };
+  if (!typed) return { board, title: oldTitle, outcome: "empty" };
+
+  const key = normalizeName(typed);
+  const sameTitle = (title) => normalizeName(title) === key;
+  const other = board.columns
+    .flatMap((column) => columnTitles(board, column.id))
+    .find((title) => title !== oldTitle && sameTitle(title));
+  if (other) return { board, title: other, outcome: "exists" };
+
+  const title = filterTitles.find(sameTitle) ?? typed;
+  if (title === oldTitle) return { board, title, outcome: "unchanged" };
+
+  const next = cloneBoard(board);
+  for (const column of next.columns) {
+    for (const entry of column.entries) {
+      if (isGroup(entry)) entry.titles = entry.titles.map((item) => (item === oldTitle ? title : item));
+      else if (entry.title === oldTitle) entry.title = title;
+    }
+  }
+  return { board: next, title, outcome: "renamed" };
+}
+
 // --- columns ---------------------------------------------------------------
 
 // Adds an empty column at the end (the lowest priority), named `name` or

@@ -21,6 +21,7 @@ import {
   findGroup,
   columnTitles,
   addTitle,
+  renameTitle,
   clampCount,
   getColumnPlan,
   getBoardPlan,
@@ -311,6 +312,42 @@ describe("sanitizeBoard", () => {
     });
     expect(clean).not.toHaveProperty("manual");
     expect(columnTitles(clean, "c1")).toEqual(["Hand-made"]);
+  });
+});
+
+describe("renameTitle", () => {
+  test("renames a single title in place, keeping its count", () => {
+    const { board: next, title, outcome } = renameTitle(board, "CTO", "  Chief   Technology Officer ");
+    expect(outcome).toBe("renamed");
+    expect(title).toBe("Chief Technology Officer");
+    expect(entriesOf(next, "c1")).toEqual([single("CEO"), single("Chief Technology Officer", 2)]);
+    expect(entriesOf(board, "c1")[1]).toEqual(single("CTO", 2));
+  });
+
+  test("renames a group's title in place", () => {
+    const { board: next } = renameTitle(grouped, "Gründer", "Gruender");
+    expect(findGroup(next, "g1").group.titles).toEqual(["Founder", "Gruender"]);
+  });
+
+  test("allows changing only the letter case", () => {
+    const { board: next, outcome } = renameTitle(board, "CTO", "cto");
+    expect(outcome).toBe("renamed");
+    expect(columnTitles(next, "c1")).toEqual(["CEO", "cto"]);
+  });
+
+  test("takes the filter's spelling", () => {
+    const { title } = renameTitle(board, "CTO", "chief  technology officer", ["Chief Technology Officer"]);
+    expect(title).toBe("Chief Technology Officer");
+  });
+
+  test("refuses a name another title on the board has", () => {
+    expect(renameTitle(board, "CTO", "architect")).toEqual({ board, title: "Architect", outcome: "exists" });
+  });
+
+  test("leaves the board unchanged for an empty, same or unknown title", () => {
+    expect(renameTitle(board, "CTO", "  ")).toEqual({ board, title: "CTO", outcome: "empty" });
+    expect(renameTitle(board, "CTO", " CTO ")).toEqual({ board, title: "CTO", outcome: "unchanged" });
+    expect(renameTitle(board, "COO", "CFO").outcome).toBe("missing");
   });
 });
 
