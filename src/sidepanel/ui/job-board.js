@@ -19,6 +19,8 @@ import {
   setCompanyLimit,
   getCompanyLimit,
   addTitle,
+  renameTitle,
+  findColumn,
   isGroup,
   columnTitles,
   getBoardPlan,
@@ -46,6 +48,12 @@ const columnViews = new Map();
 // { title } or { group } while something is dragged.
 let dragged = null;
 let dropIndicator = null;
+// { title, draft } while a title in a column is renamed; kept across renders
+// (the Job list is updated whenever the tab's URL changes).
+let editing = null;
+// True while render() replaces the items, so an editor taken out of the page
+// isn't read as left by the user.
+let rendering = false;
 // Number of column colors in styles.css ([data-color]).
 export const COLUMN_COLORS = 4;
 
@@ -141,11 +149,79 @@ function decorateTitle(item, title) {
     item.title = "Not in the current Sales Navigator \"Current job title\" filter";
   }
 
+  if (editing?.title === title) {
+    item.append(createTitleEditor(item, title));
+    return inFilter;
+  }
   const text = document.createElement("span");
   text.className = "rank-item__text";
   text.textContent = title;
+  text.addEventListener("dblclick", () => startEditing(title));
   item.append(text);
   return inFilter;
+}
+
+// --- renaming a title --------------------------------------------------------
+
+function createRenameButton(title) {
+  return createIconButton("Rename (or double-click the title)", "✎", () => startEditing(title));
+}
+
+function startEditing(title, draft = title) {
+  editing = { title, draft };
+  render();
+  elements.board.querySelector(".rank-item__edit")?.select();
+}
+
+// Enter or leaving the field saves the name, Escape cancels it. A name
+// another title has keeps the field open after Enter.
+function createTitleEditor(item, title) {
+  item.classList.add("rank-item--editing");
+  item.draggable = false;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "rank-item__edit";
+  input.value = editing.draft;
+  input.setAttribute("aria-label", `New name of the job title "${title}"`);
+  let done = false;
+  const finish = (save, keepOpen) => {
+    if (done || rendering) return;
+    done = true;
+    editing = null;
+    if (save) saveTitleName(title, input.value, keepOpen);
+    else render();
+  };
+  input.addEventListener("input", () => {
+    if (editing) editing.draft = input.value;
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true, true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true, false));
+  return input;
+}
+
+function saveTitleName(oldTitle, value, keepOpen) {
+  const result = renameTitle(board, oldTitle, value, filterTitles);
+  if (result.outcome === "renamed") {
+    applyBoard(result.board);
+    log.info(`Job title "${oldTitle}" renamed to "${result.title}"`);
+    return;
+  }
+  if (result.outcome === "exists") {
+    log.warn(`"${result.title}" is already in ${columnName(findColumn(board, result.title))}`);
+    if (keepOpen) {
+      startEditing(oldTitle, value);
+      return;
+    }
+  }
+  render();
 }
 
 function createSingleItem(column, entry, index) {
@@ -168,6 +244,7 @@ function createSingleItem(column, entry, index) {
         index === entriesOf(column).length - 1
       ),
       createIconButton("Group with the item above", "⤴", () => applyBoard(groupWithAbove(board, column, index)), index === 0),
+      createRenameButton(title),
       createIconButton(inFilter ? "Back to Job list" : "Remove", "×", () => applyBoard(moveTitle(board, title, POOL)))
     )
   );
@@ -192,6 +269,7 @@ function createGroupTitle(column, group, title, position) {
         position === group.titles.length - 1
       ),
       createIconButton("Take out of the group", "⤵", () => applyBoard(moveTitle(board, title, column, groupIndex + 1))),
+      createRenameButton(title),
       createIconButton(inFilter ? "Remove (back to Job list)" : "Remove", "×", () => applyBoard(moveTitle(board, title, POOL)))
     )
   );
@@ -444,7 +522,15 @@ function render() {
     board.columns.map((column) => `${column.name} ${columnTitles(board, column.id).length}`).join(" · ") +
     (getCompanyLimit(board) == null ? "" : ` · max ${getCompanyLimit(board)} per company`);
   renderCompanyLimit();
-  renderColumns();
+  if (editing && !findColumn(board, editing.title)) editing = null;
+  rendering = true;
+  try {
+    renderColumns();
+  } finally {
+    rendering = false;
+  }
+  const editor = elements.board.querySelector(".rank-item__edit");
+  if (editor && document.activeElement !== editor) editor.focus();
 }
 
 // --- leads per company -----------------------------------------------------
@@ -578,7 +664,7 @@ function initDragSources(container) {
   container.addEventListener("pointerdown", (event) => {
     if (!event.target.matches("input")) return;
     const item = event.target.closest("[draggable='true']");
-    if (!item) return;
+    if (!item) return; // also a title being renamed: it isn't draggable
     item.draggable = false;
     document.addEventListener("pointerup", () => (item.draggable = true), { once: true });
   });
