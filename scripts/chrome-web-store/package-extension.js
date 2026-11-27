@@ -77,7 +77,9 @@ export function buildExtensionPackage({ root = ROOT } = {}) {
   const manifest = parseManifest(manifestJson);
   assertManifestDescriptionWithinLimit(manifest.description);
 
-  rmSync(RELEASE_DIR, { recursive: true, force: true });
+  // Only the staging directory is rebuilt: zips of earlier versions stay in
+  // release/ as an archive and are deleted by hand when no longer needed.
+  rmSync(STAGING_DIR, { recursive: true, force: true });
   mkdirSync(STAGING_DIR, { recursive: true });
 
   for (const entry of PACKAGE_ENTRIES) {
