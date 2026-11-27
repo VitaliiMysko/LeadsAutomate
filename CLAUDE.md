@@ -6,7 +6,7 @@ Vanilla JavaScript Chrome extension (Manifest V3, side panel) with no build step
 
 - Load: `chrome://extensions/` → Developer mode → Load unpacked → repo root. After changes, reload the extension, then reload the Sales Navigator tab (content scripts are injected on page load).
 - Tests: `npm install` once, then `npm test`. Any new pure function (no DOM, no `chrome.*`) goes in `src/utils/` with a test in `tests/`.
-- Chrome Web Store: follow `.claude/rules/chrome-web-store.md` after any change to `manifest.json` permissions/host access or user-facing functionality, and run `npm run validate:chrome-store`. Release process: [docs/release.md](docs/release.md).
+- Chrome Web Store: follow `.claude/rules/chrome-web-store.md` after any change to `manifest.json` permissions/host access or user-facing functionality, and run `npm run validate:chrome-store`. Release process: [docs/release.md](docs/release.md). After each release is merged into `prod`, run `npm run release:chrome:package` on the released commit to save `release/leads-automate-v<version>.zip`; never delete older zips in `release/` — the user removes them by hand.
 
 ## Rules
 

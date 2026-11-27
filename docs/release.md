@@ -33,6 +33,8 @@ Merging the PR into `prod` does **not** finish the release by itself, and GitHub
 4. Repeat step 3 for each subsequent paused job. Each job's summary says exactly what's next: usually `upload` → `publish` (two approvals), or `upload` → `listing-sync-checkpoint` → `publish` (three) if the Store listing docs changed — in which case that job's summary also tells you to update the Developer Dashboard *before* approving it.
 5. Once `publish` finishes, its summary confirms the submission and reminds you it's not live yet — Google's review still has to run. If the Chrome Web Store Developer Dashboard still shows a clickable **Submit for review** button right after, try a hard refresh before assuming anything went wrong — that's been a stale-UI quirk here before, not an actual failure.
 
+After every release merged into `prod`, keep a local copy of the package: on the released commit run `npm run release:chrome:package`, which writes `release/leads-automate-v<version>.zip`. Packaging rebuilds only `release/extension/` and `release/package-info.json`; zips of earlier versions stay in `release/` (git-ignored) as an archive until you delete them by hand.
+
 If you don't see a **Review deployments** banner and a job just looks stuck, you're probably not looking at the run itself — open it from the Actions tab, not the PR's checks list.
 
 ## Listing sync checkpoint
